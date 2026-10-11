@@ -101,6 +101,7 @@
         #mainCanvas { width:100%; height:100%; display:block; }
         .piano-container { height:clamp(190px,34vh,300px); background:var(--piano-container-bg); border-top:2px solid var(--piano-border-top); flex-shrink:0; position:relative; overflow:hidden; }
         #pianoCanvas { width:100%; height:100%; display:block; }
+        #instrSel { position:absolute; top:10px; right:10px; z-index:5; background:rgba(18,12,9,.88); color:#f2c46b; border:1px solid #6a4a2a; border-radius:12px; padding:7px 12px; font:600 14px Inter,sans-serif; }
         .controls-bar { display:flex; align-items:center; justify-content:center; gap:12px; padding:8px 18px; background:var(--bg-controls); border-top:1px solid var(--border-main); flex-shrink:0; flex-wrap:wrap; }
         .transport-group { display:flex; align-items:center; gap:8px; }
         .control-btn { width:40px; height:40px; border-radius:50%; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; background:var(--bg-btn); color:var(--text-main); }
@@ -465,7 +466,8 @@
             </div>
             <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
         </div>
-        <div class="piano-container"><canvas id="pianoCanvas"></canvas></div>
+        <div class="piano-container"><canvas id="pianoCanvas"></canvas>
+            <select id="instrSel" aria-label="Instrumento"><option value="violin">Violino</option><option value="viola">Viola</option></select></div>
     </div>
     <div class="controls-bar">
         <div class="transport-group">
@@ -858,8 +860,8 @@ async function violinUrls(base){
 }
 function setSynthBadge(mode){
     const el=document.getElementById('synthBadge'); if(!el) return;
-    if(mode==='piano')   el.innerHTML='<span class="dot"></span>Violino';
-    else if(mode==='loading') el.innerHTML='<span class="dot" style="background:#c8742a"></span>Carregando violino…';
+    if(mode==='piano')   el.innerHTML='<span class="dot"></span>'+INSTR[CUR].name;
+    else if(mode==='loading') el.innerHTML='<span class="dot" style="background:#c8742a"></span>Carregando '+INSTR[CUR].name.toLowerCase()+'…';
     else el.innerHTML='<span class="dot" style="background:#e0a64d"></span>Sintetizador';
 }
 function applyVolume(){
@@ -876,6 +878,7 @@ async function getOutChain(){
         const reverb=new Tone.Reverb({decay:2.2,preDelay:0.012,wet:0.16}).connect(head);
         await reverb.generate();
         head=reverb;
+        toneFilter=new Tone.Filter(INSTR[CUR].cut,'lowpass').connect(head); head=toneFilter;
     }catch(e){}
     outChain=head; return head;
 }
@@ -1170,9 +1173,19 @@ function drawGrid(w,h,hl,pps){
 // Cada nota vira: corda + dedo (1–4; 0 = corda solta). O dedo aparece sobre o braço, na altura certa da escala
 // (a distância até a pestana segue a divisão real da corda), e o arco (mão direita, verde) toca a corda ativa.
 const SOL=['Dó','Dó♯','Ré','Mi♭','Mi','Fá','Fá♯','Sol','Sol♯','Lá','Si♭','Si'], LET=[0,0,1,2,2,3,3,4,4,5,6,6], ACC=['','♯','','♭','','','♯','','♯','','♭',''];
-const VIOLIN_OPEN=[55,62,69,76], VSTR=['G','D','A','E'];
+// Instrumentos: violino (Sol3 Ré4 Lá4 Mi5, clave de Sol) e viola (Dó3 Sol3 Ré4 Lá4, clave de Dó na 3ª linha).
+// sb/sm = índice diatônico da 1ª linha / linha central da pauta (para a pauta e o PDF); cut = filtro passa-baixa do timbre.
+const INSTR={
+    violin:{name:'Violino',art:'o violino',open:[55,62,69,76],str:['G','D','A','E'],lo:55,hi:103,clef:'treble',sb:30,sm:34,cut:20000,
+            sc:['#c58a3d','#cfd3d6','#d9dde0','#eef1f3'],sw:[3,2.5,2.1,1.6]},
+    viola:{name:'Viola',art:'a viola',open:[48,55,62,69],str:['C','G','D','A'],lo:48,hi:96,clef:'alto',sb:24,sm:28,cut:3000,
+            sc:['#8f6a35','#c58a3d','#cfd3d6','#d9dde0'],sw:[3.6,3,2.5,2.1]}
+};
+let CUR='violin'; try{ if(localStorage.getItem('vb-instr')==='viola') CUR='viola'; }catch(e){}
+let VIOLIN_OPEN=INSTR[CUR].open, VSTR=INSTR[CUR].str;
+let toneFilter=null;
 const V_REL_FINGER={1:1,2:1,3:2,4:2,5:3,6:4,7:4};     // 1ª posição: semitons acima da corda solta → dedo (6 = bemol/sustenido do 4º dedo)
-function writtenOf(m){ let w=m; while(w>103) w-=12; while(w<55) w+=12; return w; }
+function writtenOf(m){ const lo=INSTR[CUR].lo, hi=INSTR[CUR].hi; let w=m; while(w>hi) w-=12; while(w<lo) w+=12; return w; }
 // corda mais aguda que alcança a nota; acima de 7 semitons (só na corda Mi) a mão sobe de posição a cada 3 semitons
 function violinFinger(m){
     let si=0; for(let i=3;i>=0;i--) if(m>=VIOLIN_OPEN[i]){ si=i; break; }
@@ -1206,7 +1219,7 @@ function drawPiano(){
     if(top){ const g=c.createRadialGradient(ox+CX*s,oy+620*s,0,ox+CX*s,oy+620*s,Math.max(w,h)*0.55); g.addColorStop(0,ac+'44'); g.addColorStop(1,'transparent'); c.fillStyle=g; c.fillRect(0,0,w,h); }
     c.save(); c.translate(ox,oy); c.scale(s,s);
     c.lineJoin='round'; c.lineCap='round';
-    const edge=light?'#4a2a12':'#140a05', wood0=light?'#a8662f':'#6b2f12', wood1=light?'#d9954a':'#b9651f', wood2=light?'#8a4d22':'#4f2210';
+    const edge=light?'#4a2a12':'#140a05', wood0=light?(CUR==='viola'?'#8f4f26':'#a8662f'):(CUR==='viola'?'#541f0e':'#6b2f12'), wood1=light?(CUR==='viola'?'#bf7336':'#d9954a'):(CUR==='viola'?'#9a4a17':'#b9651f'), wood2=light?(CUR==='viola'?'#6f3a1a':'#8a4d22'):(CUR==='viola'?'#3f180b':'#4f2210');
     const eb=light?'#3a2c22':'#150e0a';
     // --- voluta (scroll), caixa de cravelhas e cravelhas ---
     c.fillStyle=wood1; c.strokeStyle=edge; c.lineWidth=3;
@@ -1259,7 +1272,7 @@ function drawPiano(){
     c.fillStyle='#d9b98a'; c.strokeStyle='#3a2410'; c.lineWidth=2.4;
     c.beginPath(); c.moveTo(CX-54,BR+8); c.quadraticCurveTo(CX-50,BR-12,CX-30,BR-14); c.lineTo(CX+30,BR-14); c.quadraticCurveTo(CX+50,BR-12,CX+54,BR+8); c.closePath(); c.fill(); c.stroke();
     // --- cordas ---
-    const SC=['#c58a3d','#cfd3d6','#d9dde0','#eef1f3'], SW=[3,2.5,2.1,1.6];
+    const SC=INSTR[CUR].sc, SW=INSTR[CUR].sw;
     for(let i=0;i<4;i++){
         const on=fg&&fg.s===i;
         c.lineWidth=SW[i]; c.strokeStyle=SC[i];
@@ -1306,7 +1319,7 @@ function drawPiano(){
     for(let q=0;q<=8;q+=2){ c.beginPath(); c.moveTo(sx0,Y(q)); c.lineTo(sx1,Y(q)); c.stroke(); }
     c.globalAlpha=1; c.fillStyle=top?'#fff':ink; c.font='700 56px Inter,sans-serif'; c.textAlign='left';
     if(top){
-        const pc=pw%12, q0=((Math.floor(pw/12)-1)*7+LET[pc])-30, yy=Y(q0);
+        const pc=pw%12, q0=((Math.floor(pw/12)-1)*7+LET[pc])-INSTR[CUR].sb, yy=Y(q0);
         c.strokeStyle=ink; for(let q=-2;q>=q0;q-=2){ c.beginPath(); c.moveTo(nx-16,Y(q)); c.lineTo(nx+16,Y(q)); c.stroke(); }
         for(let q=10;q<=q0;q+=2){ c.beginPath(); c.moveTo(nx-16,Y(q)); c.lineTo(nx+16,Y(q)); c.stroke(); }
         c.shadowColor=ac; c.shadowBlur=16; c.fillStyle=ac; c.beginPath(); c.ellipse(nx,yy,8.5,6,-0.3,0,Math.PI*2); c.fill(); c.shadowBlur=0;
@@ -2387,6 +2400,20 @@ if('serviceWorker' in navigator){
 resizeCanvases();
 buildMiniPiano();
 rebuildVoiceTabs();
+function setInstrument(k,persist){
+    if(!INSTR[k]) k='violin';
+    CUR=k; VIOLIN_OPEN=INSTR[k].open; VSTR=INSTR[k].str;
+    if(persist){ try{ localStorage.setItem('vb-instr',k); }catch(e){} }
+    const sel=document.getElementById('instrSel'); if(sel&&sel.value!==k) sel.value=k;
+    const sm=document.querySelector('#exScore small'); if(sm) sm.textContent=INSTR[k].clef==='alto'?'Clave de Dó, pronta para imprimir':'Clave de Sol, pronta para imprimir';
+    const ew=document.querySelector('#exWav small'); if(ew) ew.textContent='Gravação da composição com o som d'+INSTR[k].art.slice(1);
+    try{ if(toneFilter) toneFilter.frequency.rampTo(INSTR[k].cut,.05); }catch(e){}
+    try{ if(state.sampler&&state.sampler.releaseAll) state.sampler.releaseAll(); }catch(e){}
+    setSynthBadge(state.piano?'piano':(state.samplerReady?'synth':'loading'));
+    try{ drawPiano(); }catch(e){}
+}
+document.getElementById('instrSel').addEventListener('change',e=>setInstrument(e.target.value,true));
+setInstrument(CUR,false);
 initSampler(); // start loading samples in background
 
 // Idle animation
@@ -2558,7 +2585,7 @@ function pbBuildScore(opts){
     if(!notes.length) throw new Error('vazio');
     const end=Math.max(...notes.map(x=>x.e)), nM=Math.max(1,Math.ceil(end/M)), total=nM*M;
     const SP=8, W=840, H=1188, MX=52;
-    const staves=[{clef:'treble',base:30,mid:34,ev:pbStaffEvents(notes,M,ts,total)}];
+    const staves=[{clef:INSTR[CUR].clef,base:INSTR[CUR].sb,mid:INSTR[CUR].sm,ev:pbStaffEvents(notes,M,ts,total)}];
 
     staves.forEach(st=>{
         let state={}, lastM=-1;
@@ -2637,7 +2664,7 @@ function pbBuildScore(opts){
         svgs.push(s); page=s;
         if(pageNo===1){
             pbEl(page,'text',{x:W/2,y:70,'text-anchor':'middle','font-family':'Georgia,Times New Roman,serif','font-size':28,'font-weight':'bold',fill:'#111'},title||'Sem título');
-            pbEl(page,'text',{x:MX,y:96,'font-family':'Georgia,serif','font-size':13,'font-style':'italic',fill:'#555'},'Violino');
+            pbEl(page,'text',{x:MX,y:96,'font-family':'Georgia,serif','font-size':13,'font-style':'italic',fill:'#555'},INSTR[CUR].name);
             pbEl(page,'ellipse',{cx:MX+5,cy:120,rx:4.6,ry:3.4,transform:'rotate(-20 '+(MX+5)+' 120)',fill:'#111'});
             pbEl(page,'line',{x1:MX+9.2,y1:119,x2:MX+9.2,y2:105,stroke:'#111','stroke-width':1.3});
             pbEl(page,'text',{x:MX+18,y:120,'font-family':'Arial,Helvetica,sans-serif','font-size':14,fill:'#111'},'= '+bpm);
@@ -2683,7 +2710,7 @@ function pbBuildScore(opts){
         const bottomY=tops[0]+4*SP;
         pbEl(pg,'line',{x1:left,y1:tops[0],x2:left,y2:bottomY,stroke:INK,'stroke-width':1.6});
         staves.forEach((st,k)=>{
-            pbTrebleClef(pg,left+8,tops[k]+3*SP,SP);
+            if(st.clef==='alto') pbAltoClef(pg,left+7,tops[k]+2*SP,SP); else pbTrebleClef(pg,left+8,tops[k]+3*SP,SP);
             if(firstTs){
                 const [a,b]=ts.split('/'), tx=left+clefW+8;
                 pbEl(pg,'text',{x:tx,y:tops[k]+2*SP-1,'text-anchor':'middle','font-family':'Georgia,serif','font-size':SP*2.7,'font-weight':'bold',fill:INK},a);
@@ -2848,6 +2875,18 @@ function pbRest(g,ev,cx,top,SP,M,ink){
         pbEl(g,'path',{d:`M${xx-SP*.6},${yy+SP*.1} Q${xx},${yy+SP*.3} ${xx+SP*.35},${yy-SP*.45}`,fill:'none',stroke:ink,'stroke-width':1.4,'stroke-linecap':'round'});
     }
     if(pbDotted(len)) pbEl(g,'circle',{cx:cx+SP*1.2,cy:mid-SP*.3,r:1.5,fill:ink});
+}
+// clave de Dó (3ª linha) — usada pela viola; o ponto central fica sobre a linha do meio (yM)
+function pbAltoClef(g,x,yM,SP){
+    const u=SP, X=a=>(x+a*u).toFixed(2), Y=b=>(yM+b*u).toFixed(2);
+    pbEl(g,'rect',{x:x,y:yM-2*u,width:.62*u,height:4*u,fill:'#111'});
+    pbEl(g,'line',{x1:x+1.02*u,y1:yM-2*u,x2:x+1.02*u,y2:yM+2*u,stroke:'#111','stroke-width':.16*u});
+    pbEl(g,'path',{d:`M${X(1.5)},${Y(-2.0)} C${X(3.5)},${Y(-2.35)} ${X(3.6)},${Y(-.35)} ${X(1.7)},${Y(-.1)} `+
+                     `M${X(1.5)},${Y(2.0)} C${X(3.5)},${Y(2.35)} ${X(3.6)},${Y(.35)} ${X(1.7)},${Y(.1)} `+
+                     `M${X(1.7)},${Y(-.1)} L${X(1.7)},${Y(.1)}`,
+        fill:'none',stroke:'#111','stroke-width':1.7,'stroke-linecap':'round','stroke-linejoin':'round'});
+    pbEl(g,'circle',{cx:x+1.5*u,cy:yM-2*u,r:.3*u,fill:'#111'});
+    pbEl(g,'circle',{cx:x+1.5*u,cy:yM+2*u,r:.3*u,fill:'#111'});
 }
 function pbTrebleClef(g,x,yG,SP){
     const u=SP, P=(a,b)=>`${(x+a*u).toFixed(2)},${(yG+b*u).toFixed(2)}`;
@@ -3144,7 +3183,8 @@ async function renderWav(){
             let s=bank[0]; bank.forEach(x=>{ if(Math.abs(x.midi-n.midi)<Math.abs(s.midi-n.midi)) s=x; });
             const src=ctx.createBufferSource(); src.buffer=s.buf; src.playbackRate.value=Math.pow(2,(n.midi-s.midi)/12);
             g.gain.setValueAtTime(vel,t); g.gain.setTargetAtTime(0,e,.12);
-            src.connect(g); src.start(t); src.stop(Math.min(end,e+1.2));
+            if(INSTR[CUR].cut<20000){ const f2=ctx.createBiquadFilter(); f2.type='lowpass'; f2.frequency.value=INSTR[CUR].cut; src.connect(f2); f2.connect(g); } else src.connect(g);
+            src.start(t); src.stop(Math.min(end,e+1.2));
         } else {
             // sintetizador de cordas: serra + filtro + vibrato
             const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=440*Math.pow(2,(n.midi-69)/12);
@@ -3166,7 +3206,7 @@ $('exWav').onclick=async()=>{
     try{
         const r=await renderWav();
         download(safeName(projName==='Sem título'?'violinbounce':projName)+'.wav',wavBlob(r.buf));
-        say(r.real?'WAV exportado (violino real)':'WAV exportado (sintetizador — as gravações do violino não carregaram)',true);
+        say(r.real?'WAV exportado ('+INSTR[CUR].name.toLowerCase()+')':'WAV exportado (sintetizador — as gravações não carregaram)',true);
     }catch(e){ console.error(e); say('Não foi possível gerar o WAV'); }
     busy(false);
 };
