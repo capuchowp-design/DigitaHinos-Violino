@@ -101,6 +101,7 @@
         #mainCanvas { width:100%; height:100%; display:block; }
         .piano-container { height:clamp(190px,34vh,300px); background:var(--piano-container-bg); border-top:2px solid var(--piano-border-top); flex-shrink:0; position:relative; overflow:hidden; }
         #pianoCanvas { width:100%; height:100%; display:block; }
+        #keySelPlayer { position:absolute; bottom:6px; left:8px; z-index:5; max-width:46%; background:rgba(18,12,9,.88); color:#f2c46b; border:1px solid #6a4a2a; border-radius:10px; padding:6px 8px; font:600 12px Inter,sans-serif; }
         #instrSel { position:absolute; top:10px; right:10px; z-index:5; background:rgba(18,12,9,.88); color:#f2c46b; border:1px solid #6a4a2a; border-radius:12px; padding:7px 12px; font:600 14px Inter,sans-serif; }
         .controls-bar { display:flex; align-items:center; justify-content:center; gap:12px; padding:8px 18px; background:var(--bg-controls); border-top:1px solid var(--border-main); flex-shrink:0; flex-wrap:wrap; }
         .transport-group { display:flex; align-items:center; gap:8px; }
@@ -467,6 +468,7 @@
             <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
         </div>
         <div class="piano-container"><canvas id="pianoCanvas"></canvas>
+            <select id="keySelPlayer" aria-label="Armadura de clave" title="Armadura de clave: ♯ ou ♭"><option value="s0">Sem armadura (acidentes com ♯)</option><option value="f0">Sem armadura (acidentes com ♭)</option><option value="s1">1♯ · Sol maior / Mi menor</option><option value="s2">2♯ · Ré maior / Si menor</option><option value="s3">3♯ · Lá maior / Fá♯ menor</option><option value="s4">4♯ · Mi maior / Dó♯ menor</option><option value="s5">5♯ · Si maior / Sol♯ menor</option><option value="s6">6♯ · Fá♯ maior / Ré♯ menor</option><option value="s7">7♯ · Dó♯ maior / Lá♯ menor</option><option value="f1">1♭ · Fá maior / Ré menor</option><option value="f2">2♭ · Si♭ maior / Sol menor</option><option value="f3">3♭ · Mi♭ maior / Dó menor</option><option value="f4">4♭ · Lá♭ maior / Fá menor</option><option value="f5">5♭ · Ré♭ maior / Si♭ menor</option><option value="f6">6♭ · Sol♭ maior / Mi♭ menor</option><option value="f7">7♭ · Dó♭ maior / Lá♭ menor</option></select>
             <select id="instrSel" aria-label="Instrumento"><option value="violin">Violino</option><option value="viola">Viola</option></select></div>
     </div>
     <div class="controls-bar">
@@ -510,6 +512,8 @@
             <label>BPM:</label><input type="number" id="scoreBpm" value="120" min="20" max="300">
             <label>Compasso:</label>
             <select id="scoreTimeSig"><option value="4/4" selected>4/4</option><option value="3/4">3/4</option><option value="6/8">6/8</option><option value="2/4">2/4</option></select>
+            <label>Armadura:</label>
+            <select id="scoreKey" title="Armadura de clave: define se a música usa ♯ ou ♭"><option value="s0">Sem armadura (acidentes com ♯)</option><option value="f0">Sem armadura (acidentes com ♭)</option><option value="s1">1♯ · Sol maior / Mi menor</option><option value="s2">2♯ · Ré maior / Si menor</option><option value="s3">3♯ · Lá maior / Fá♯ menor</option><option value="s4">4♯ · Mi maior / Dó♯ menor</option><option value="s5">5♯ · Si maior / Sol♯ menor</option><option value="s6">6♯ · Fá♯ maior / Ré♯ menor</option><option value="s7">7♯ · Dó♯ maior / Lá♯ menor</option><option value="f1">1♭ · Fá maior / Ré menor</option><option value="f2">2♭ · Si♭ maior / Sol menor</option><option value="f3">3♭ · Mi♭ maior / Dó menor</option><option value="f4">4♭ · Lá♭ maior / Fá menor</option><option value="f5">5♭ · Ré♭ maior / Si♭ menor</option><option value="f6">6♭ · Sol♭ maior / Mi♭ menor</option><option value="f7">7♭ · Dó♭ maior / Lá♭ menor</option></select>
             <label>Oitava:</label>
             <select id="scoreOctave"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option></select>
             <span class="pb-name" id="pbName" role="button" tabindex="0">📄 Sem título</span>
@@ -756,6 +760,7 @@ class MidiParser {
                 const mt=this.u8(),ml=this.vl(),data=[];
                 for(let i=0;i<ml;i++) data.push(this.u8());
                 if(mt===0x51&&ml===3) evts.push({d,type:'tempo',tempo:(data[0]<<16)|(data[1]<<8)|data[2]});
+                else if(mt===0x59&&ml>=2) evts.push({d,type:'key',sf:(data[0]<<24)>>24});
                 else evts.push({d,type:'meta'});
             } else if(st===0xF0||st===0xF7){
                 const sl=this.vl(); for(let i=0;i<sl;i++) this.u8();
@@ -774,11 +779,12 @@ class MidiParser {
 function parseMidiFile(buf){
     const pr=new MidiParser(buf), raw=pr.parse();
     const all=[], active=new Map();
-    let spt=60/(120*raw.tpb), firstTempo=null;
+    let spt=60/(120*raw.tpb), firstTempo=null, firstKey=null;
     raw.tracks.forEach((evts,ti)=>{
         let time=0;
         for(const e of evts){
             time+=e.d*spt;
+            if(e.type==='key'&&firstKey===null) firstKey=e.sf;
             if(e.type==='tempo'){ if(firstTempo===null) firstTempo=e.tempo; spt=e.tempo/(1e6*raw.tpb); }
             if(e.type==='noteOn'&&e.vel>0){
                 active.set(`${e.ch}-${e.note}`,{midi:e.note,startTime:time,velocity:e.vel,track:ti});
@@ -791,7 +797,7 @@ function parseMidiFile(buf){
         active.clear();
     });
     all.sort((a,b)=>a.startTime-b.startTime);
-    return {notes:all, duration:all.length?Math.max(...all.map(n=>n.endTime)):0, bpm:firstTempo?60e6/firstTempo:120};
+    return {notes:all, duration:all.length?Math.max(...all.map(n=>n.endTime)):0, bpm:firstTempo?60e6/firstTempo:120, key:firstKey};
 }
 
 // ======================== STATE ========================
@@ -965,6 +971,7 @@ function loadMidiFile(file){
             const parsed=parseMidiFile(e.target.result);
             if(!parsed.notes.length) throw new Error('Nenhuma nota encontrada');
             applyNotes(parsed.notes, parsed.duration);
+            if(parsed.key&&Math.abs(parsed.key)<=7) setKey((parsed.key<0?'f':'s')+Math.abs(parsed.key),true);
             toast(`Carregado! ${state.totalNotes} notas`, 'success');
         } catch(err){ toast('Erro: '+err.message); state.midiLoaded=false; }
         loadingOverlay.classList.remove('active');
@@ -1102,15 +1109,15 @@ function drawScene(){
     mainCtx.fillStyle=bg; mainCtx.fillRect(0,0,w,h);
     if(!state.midiLoaded) return;
     const pps=state.pps, hl=h-2;
-    const active=new Map();
+    const active=new Map(), accMap=new Map();
     state.notes.forEach(n=>{
         const st=hl-((n.endTime-state.currentTime)*pps);
         const sb=hl-((n.startTime-state.currentTime)*pps);
         
-        if(state.currentTime>=n.startTime&&state.currentTime<=n.endTime) active.set(n.midi,n.color);
+        if(state.currentTime>=n.startTime&&state.currentTime<=n.endTime){ active.set(n.midi,n.color); accMap.set(n.midi,n.acc||0); }
     });
     state.pianoKeys.forEach(k=>{
-        k.isActive=active.has(k.midi); k.activeColor=active.get(k.midi)||null;
+        k.isActive=active.has(k.midi); k.activeColor=active.get(k.midi)||null; k.activeAcc=accMap.get(k.midi)||0;
     });
     mainCtx.strokeStyle='rgba(255,255,255,0.1)'; mainCtx.lineWidth=1;
     mainCtx.beginPath(); mainCtx.moveTo(0,hl); mainCtx.lineTo(w,hl); mainCtx.stroke();
@@ -1199,6 +1206,35 @@ const VL={CX:330,NUT:200,BR:742,FB:626};
 const vStrX=(i,y)=>{ const t=(y-VL.NUT)/(VL.BR-VL.NUT), a=VL.CX-27+18*i, b=VL.CX-45+30*i; return a+(b-a)*t; };
 const vOffY=off=>VL.NUT+(VL.BR-VL.NUT)*(1-Math.pow(2,-off/12));
 const claFX=[];
+// ======================== ARMADURA DE CLAVE / ♯ ou ♭ ========================
+// KEY.n = quantidade de acidentes na armadura; KEY.flat = usa bemóis (senão sustenidos). Com n=0 só escolhe como escrever os acidentes.
+const PCL=[0,2,4,5,7,9,11], KS_SHARP_L=[3,0,4,1,5,2,6], KS_FLAT_L=[6,2,5,1,4,0,3], NOMES_PT=['Dó','Ré','Mi','Fá','Sol','Lá','Si'];
+let KEY={n:0,flat:false};
+try{ const k=JSON.parse(localStorage.getItem('vb-key')||'null'); if(k&&k.n>=0&&k.n<=7) KEY={n:k.n|0,flat:!!k.flat}; }catch(e){}
+function keySigArr(){ const a=[0,0,0,0,0,0,0]; for(let i=0;i<KEY.n;i++) a[(KEY.flat?KS_FLAT_L:KS_SHARP_L)[i]]=KEY.flat?-1:1; return a; }
+let KSIG=keySigArr();
+// escreve a nota (letra l 0=Dó…6=Si, acidente a, oitava o) conforme o acidente escolhido pelo usuário ou a armadura
+function spellMidi(m,acc){
+    const pc=((m%12)+12)%12;
+    if(acc){ const b=m-acc, i=PCL.indexOf(((b%12)+12)%12); if(i>=0) return {l:i,a:acc,o:Math.floor(b/12)-1}; }
+    for(let l=0;l<7;l++) if(KSIG[l]&&((PCL[l]+KSIG[l]+12)%12)===pc) return {l,a:KSIG[l],o:Math.floor((m-KSIG[l])/12)-1};
+    const i=PCL.indexOf(pc); if(i>=0) return {l:i,a:0,o:Math.floor(m/12)-1};
+    if(KEY.flat) return {l:PCL.indexOf((pc+1)%12),a:-1,o:Math.floor((m+1)/12)-1};
+    return {l:PCL.indexOf((pc+11)%12),a:1,o:Math.floor((m-1)/12)-1};
+}
+function dispName(m,acc){ const s=spellMidi(m,acc||0); return 'CDEFGAB'[s.l]+(s.a===1?'♯':s.a===-1?'♭':'')+s.o; }
+function setKey(v,user){
+    v=String(v); if(!/^[sf][0-7]$/.test(v)) v='s0';
+    KEY={n:parseInt(v[1]),flat:v[0]==='f'}; KSIG=keySigArr();
+    ['scoreKey','keySelPlayer'].forEach(id=>{ const el=document.getElementById(id); if(el&&el.value!==v) el.value=v; });
+    if(user){
+        try{ localStorage.setItem('vb-key',JSON.stringify(KEY)); }catch(e){}
+        try{ renderScoreList(); renderPianoRoll(); }catch(e){}
+        try{ drawPiano(); }catch(e){}
+        try{ autosave(); }catch(e){}
+    }
+}
+const keyValue=()=>(KEY.flat?'f':'s')+KEY.n;
 // ---- mão esquerda animada (a mesma do Guitar Bounce): o dedo da nota desce na corda/altura certa e a palma acompanha ----
 const vKS=24, vHand={palmY:300,palmT:null,last:0,f:[null,0,1,2,3].map((v,k)=>k?{x:VL.CX+78,y:300+(k-2.5)*vKS,p:0,tx:0,ty:0,tp:0}:null)};
 let vShowHand=true; try{ vShowHand=localStorage.getItem('vbHand')!=='0'; }catch(e){}
@@ -1364,12 +1400,12 @@ function drawPiano(){
     for(let q=0;q<=8;q+=2){ c.beginPath(); c.moveTo(sx0,Y(q)); c.lineTo(sx1,Y(q)); c.stroke(); }
     c.globalAlpha=1; c.fillStyle=top?'#fff':ink; c.font='700 56px Inter,sans-serif'; c.textAlign='left';
     if(top){
-        const pc=pw%12, q0=((Math.floor(pw/12)-1)*7+LET[pc])-INSTR[CUR].sb, yy=Y(q0);
+        const sp2=spellMidi(pw,top.activeAcc||0), pc=pw%12, q0=(sp2.o*7+sp2.l)-INSTR[CUR].sb, yy=Y(q0);
         c.strokeStyle=ink; for(let q=-2;q>=q0;q-=2){ c.beginPath(); c.moveTo(nx-16,Y(q)); c.lineTo(nx+16,Y(q)); c.stroke(); }
         for(let q=10;q<=q0;q+=2){ c.beginPath(); c.moveTo(nx-16,Y(q)); c.lineTo(nx+16,Y(q)); c.stroke(); }
         c.shadowColor=ac; c.shadowBlur=16; c.fillStyle=ac; c.beginPath(); c.ellipse(nx,yy,8.5,6,-0.3,0,Math.PI*2); c.fill(); c.shadowBlur=0;
-        c.font='26px sans-serif'; c.fillText(ACC[pc],nx-34,yy+9);
-        c.font='700 56px Inter,sans-serif'; c.fillStyle=light?'#2a1608':'#fff'; c.fillText(SOL[pc],20,330);
+        c.font='26px sans-serif'; c.fillText(sp2.a===1?'♯':sp2.a===-1?'♭':(KSIG[sp2.l]?'♮':''),nx-34,yy+9);
+        c.font='700 56px Inter,sans-serif'; c.fillStyle=light?'#2a1608':'#fff'; c.fillText(NOMES_PT[sp2.l]+(sp2.a===1?'♯':sp2.a===-1?'♭':''),20,330);
         c.font='600 15px Inter,sans-serif'; c.fillStyle=ink; c.fillText('corda '+VSTR[fg.s]+(fg.f?' · dedo '+fg.f:' · solta'),20,356);
     } else c.fillText('♪',20,330);
     c.restore();
@@ -1737,7 +1773,7 @@ function renderScoreList(){
         el.className='note-item'+(i===selectedNoteIdx?' selected-note':'');
         el.style.borderColor=i===selectedNoteIdx?v.color:'';
         el.innerHTML=`<div class="note-color" style="background:${v.color}"></div>`+
-            `<span class="note-name" style="cursor:pointer">${nname(n.midi)}${dotStr}</span>`+
+            `<span class="note-name" style="cursor:pointer">${dispName(n.midi,n.accidental)}${dotStr}</span>`+
             `<span class="note-voice">V${v.id+1}</span>`+
             `<span class="note-time">b${n.beat.toFixed(2)}</span>`+
             `<span class="note-art">${artStr}${n.tied?'⌢':''}</span>`+
@@ -1798,7 +1834,7 @@ function drawRollLabels(ctx,sl,totalH,prLight){
         let txt,font,col;
         if(m%12===0){ txt='C'+(Math.floor(m/12)-1); font=`bold ${fs}px Inter,sans-serif`; col=prLight?'#a85a13':'#f2c46b'; }
         else if(!isBlk(m)){ txt=nnameOnly(m); font=`${fs}px Inter,sans-serif`; col=prLight?'#8a6f52':'#b8a58f'; }
-        else { txt=nnameOnly(m).replace('#','♯'); font=`${fs-2}px Inter,sans-serif`; col=prLight?'#b39c80':'#7a6a58'; }
+        else { const sq=spellMidi(m,0); txt='CDEFGAB'[sq.l]+(sq.a===1?'♯':'♭'); font=`${fs-2}px Inter,sans-serif`; col=prLight?'#b39c80':'#7a6a58'; }
         ctx.font=font; ctx.fillStyle=col;
         ctx.fillText(txt,sl+PR_LABEL_W-6,y+PR_ROW_H*0.5+fs*0.35);
         ctx.strokeStyle=prLight?'rgba(120,150,175,0.18)':'rgba(255,255,255,0.08)'; ctx.lineWidth=1;
@@ -1926,7 +1962,7 @@ function renderPianoRoll(){
         // Voice label
         if(nw>20){
             ctx.fillStyle='rgba(0,0,0,0.65)'; ctx.font='bold 11px Inter,sans-serif'; ctx.textAlign='left';
-            ctx.fillText((nw>58?prName(n.midi)+' ':'')+'V'+(n.voice+1),x+5,y+nh/2+4);
+            ctx.fillText((nw>58?dispName(n.midi,n.accidental)+' ':'')+'V'+(n.voice+1),x+5,y+nh/2+4);
         }
         // Articulations
         if(n.articulations&&n.articulations.length){
@@ -2373,7 +2409,7 @@ function scoreToPlayerNotes(){
         used.add(i);
         const mods=articulationMods(n.articulations);
         result.push({midi:n.midi,startTime:(n.beat-1)*spb,endTime:(n.beat-1+totalDur*mods.durMul)*spb,
-            duration:totalDur*mods.durMul*spb,velocity:Math.min(1,(n.velocity/127)*mods.velMul),track:n.voice,color:n.color});
+            duration:totalDur*mods.durMul*spb,velocity:Math.min(1,(n.velocity/127)*mods.velMul),track:n.voice,color:n.color,acc:n.accidental||0});
     });
     return result;
 }
@@ -2396,7 +2432,7 @@ function exportMidi(){
     function vl(v){ if(v<128) return [v]; const b=[]; let vv=v; while(vv>0){b.unshift(vv&0x7F);vv>>=7;} for(let i=0;i<b.length-1;i++) b[i]|=0x80; return b; }
     const byVoice={}; scoreNotes.forEach(n=>{ (byVoice[n.voice]=byVoice[n.voice]||[]).push(n); });
     const voiceIds=Object.keys(byVoice).map(Number);
-    const tracks=[[0,0xFF,0x51,0x03,(tempo>>16)&0xFF,(tempo>>8)&0xFF,tempo&0xFF,0,0xFF,0x2F,0x00]];
+    const tracks=[[0,0xFF,0x51,0x03,(tempo>>16)&0xFF,(tempo>>8)&0xFF,tempo&0xFF,0,0xFF,0x59,0x02,(KEY.flat?-KEY.n:KEY.n)&0xFF,0,0,0xFF,0x2F,0x00]];
     voiceIds.forEach(vid=>{
         const ch=vid%16,evts=[];
         byVoice[vid].forEach(n=>{
@@ -2469,6 +2505,8 @@ function setInstrument(k,persist){
     try{ drawPiano(); }catch(e){}
 }
 document.getElementById('instrSel').addEventListener('change',e=>setInstrument(e.target.value,true));
+['scoreKey','keySelPlayer'].forEach(id=>document.getElementById(id).addEventListener('change',e=>setKey(e.target.value,true)));
+setKey(keyValue(),false);
 setInstrument(CUR,false);
 initSampler(); // start loading samples in background
 
@@ -2591,15 +2629,7 @@ function pbSplit(p,len,ts){
     return out;
 }
 const PB_WL=[0,null,1,null,2,3,null,4,null,5,null,6];
-function pbSpell(n){
-    const m=n.midi, acc=n.accidental||0, pc=((m%12)+12)%12;
-    if(acc!==0){
-        const b=m-acc, bpc=((b%12)+12)%12;
-        if(PB_WL[bpc]!=null) return {l:PB_WL[bpc],a:acc,o:Math.floor(b/12)-1};
-    }
-    if(PB_WL[pc]!=null) return {l:PB_WL[pc],a:0,o:Math.floor(m/12)-1};
-    return {l:PB_WL[pc-1],a:1,o:Math.floor(m/12)-1};
-}
+function pbSpell(n){ return spellMidi(n.midi,n.accidental||0); }
 const pbFlags=len=>len>=8?0:len>=4?1:len>=2?2:3;
 const pbDotted=len=>len===24||len===12||len===6||len===3;
 
@@ -2649,7 +2679,7 @@ function pbBuildScore(opts){
             if(ev.m!==lastM){ state={}; lastM=ev.m; }
             if(ev.rest) return;
             ev.notes.forEach(h=>{
-                const key=h.l+'/'+h.o, cur=state[key]||0;
+                const key=h.l+'/'+h.o, cur=(key in state)?state[key]:KSIG[h.l];
                 if(h.tieIn){ h.show=null; state[key]=h.a; return; }
                 if(cur!==h.a){ h.show=h.a; state[key]=h.a; }
             });
@@ -2698,14 +2728,14 @@ function pbBuildScore(opts){
         });
         measures.push({m,cols});
     }
-    const clefW=34, tsW=22, AWfull=W-2*MX;
+    const clefW=34, tsW=22, AWfull=W-2*MX, ksW=KEY.n?KEY.n*9+6:0;
     const systems=[]; let cur=null;
     const mWidth=ms=>8+ms.cols.reduce((s,c)=>s+c.left+c.base,0)+6;
     measures.forEach(ms=>{
         const w=mWidth(ms);
         if(!cur){ cur={ms:[ms],w,first:true}; systems.push(cur); }
         else {
-            const av=AWfull-clefW-(cur.first?tsW:0);
+            const av=AWfull-clefW-ksW-(cur.first?tsW:0);
             if(cur.w+w<=av){ cur.ms.push(ms); cur.w+=w; }
             else { cur={ms:[ms],w,first:false}; systems.push(cur); }
         }
@@ -2744,8 +2774,8 @@ function pbBuildScore(opts){
     place.forEach(({sys,page:pg,y0},si)=>{
         const tops=staves.map((_,k)=>y0+44+k*(4*SP));
         const left=MX, firstTs=sys.first;
-        const xStart=left+clefW+(firstTs?tsW:0);
-        const AW=AWfull-clefW-(firstTs?tsW:0);
+        const xStart=left+clefW+ksW+(firstTs?tsW:0);
+        const AW=AWfull-clefW-ksW-(firstTs?tsW:0);
         const pads=sys.ms.length*14;
         const fixed=sys.ms.reduce((s,ms)=>s+ms.cols.reduce((a,c)=>a+c.left,0),0);
         const flex=sys.ms.reduce((s,ms)=>s+ms.cols.reduce((a,c)=>a+c.base,0),0);
@@ -2767,8 +2797,12 @@ function pbBuildScore(opts){
         pbEl(pg,'line',{x1:left,y1:tops[0],x2:left,y2:bottomY,stroke:INK,'stroke-width':1.6});
         staves.forEach((st,k)=>{
             if(st.clef==='alto') pbAltoClef(pg,left+7,tops[k]+2*SP,SP); else pbTrebleClef(pg,left+8,tops[k]+3*SP,SP);
+            if(KEY.n){
+                const PS=(KEY.flat?[4,7,3,6,2,5,1]:[8,5,9,6,3,7,4]).map(q=>q-(st.clef==='alto'?1:0));
+                for(let q=0;q<KEY.n;q++) pbAccidental(pg,left+clefW+6+q*9,stepY(st,tops[k],st.base+PS[q]),KEY.flat?-1:1,SP,INK);
+            }
             if(firstTs){
-                const [a,b]=ts.split('/'), tx=left+clefW+8;
+                const [a,b]=ts.split('/'), tx=left+clefW+ksW+8;
                 pbEl(pg,'text',{x:tx,y:tops[k]+2*SP-1,'text-anchor':'middle','font-family':'Georgia,serif','font-size':SP*2.7,'font-weight':'bold',fill:INK},a);
                 pbEl(pg,'text',{x:tx,y:tops[k]+4*SP-1,'text-anchor':'middle','font-family':'Georgia,serif','font-size':SP*2.7,'font-weight':'bold',fill:INK},b);
             }
@@ -2980,7 +3014,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModals(); });
 /* ---------- estado do projeto ---------- */
 function snapshot(){
     return {app:'violinbounce',v:1,name:projName,
-        bpm:parseInt($('scoreBpm').value)||120, timeSig:$('scoreTimeSig').value, octave:$('scoreOctave').value,
+        bpm:parseInt($('scoreBpm').value)||120, key:keyValue(), timeSig:$('scoreTimeSig').value, octave:$('scoreOctave').value,
         voices:voices.map(v=>({id:v.id,name:v.name,color:v.color})), activeVoice, curBeat,
         notes:scoreNotes.map(n=>({midi:n.midi,beat:n.beat,duration:n.duration,velocity:n.velocity,voice:n.voice,
             accidental:n.accidental||0,dotted:!!n.dotted,dotted2:!!n.dotted2,tied:!!n.tied,
@@ -3007,6 +3041,7 @@ function apply(d){
     if(chordMode) voices.forEach(v=>{ chordVoiceNotes[v.id]=selMidi; });
     if(d.bpm) $('scoreBpm').value=Math.max(20,Math.min(300,parseInt(d.bpm)||120));
     if(d.timeSig) setSel('scoreTimeSig',d.timeSig);
+    if(d.key) setKey(d.key,false);
     if(d.octave) setSel('scoreOctave',d.octave);
     curBeat=d.curBeat>=1?d.curBeat:(scoreNotes.length?Math.max(...scoreNotes.map(n=>n.beat+n.duration)):1);
     $('noteBeat').value=parseFloat(curBeat.toFixed(3));
