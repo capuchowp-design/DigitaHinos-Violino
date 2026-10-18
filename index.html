@@ -1275,7 +1275,7 @@ const normTxt=t=>String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036
 function renderHinos(){
     const q=normTxt(document.getElementById('hinoQ').value).trim(), box=document.getElementById('hinoList');
     box.innerHTML='';
-    if(!HINOS){ box.textContent='Não foi possível carregar a lista de hinos.'; return; }
+    if(!HINOS){ box.textContent=location.protocol==='file:'?'A biblioteca precisa de um endereço http. Abra o app pelo GitHub Pages ou rode um servidor local (python3 -m http.server) na pasta do projeto e acesse http://localhost:8000.':'Não foi possível carregar a lista de hinos.'; return; }
     const list=HINOS.filter(h=>!q||String(h.n).padStart(3,'0').includes(q.replace(/^0+(?=\d)/,''))||String(h.n)===q||normTxt(h.t).includes(q));
     if(!list.length){ box.textContent='Nenhum hino encontrado.'; return; }
     const fr=document.createDocumentFragment();
