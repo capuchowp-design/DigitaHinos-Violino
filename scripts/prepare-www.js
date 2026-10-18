@@ -18,6 +18,8 @@ for (const f of fs.readdirSync('.')) {
   }
 }
 
+if (fs.existsSync('hinos')) fs.cpSync('hinos', path.join(out, 'hinos'), { recursive: true });
+
 const idx = path.join(out, 'index.html');
 let html = fs.readFileSync(idx, 'utf8');
 if (!/<head[^>]*>/i.test(html)) throw new Error('index.html sem <head>');
