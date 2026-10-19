@@ -1706,6 +1706,9 @@ function writtenOf(m){ const lo=INSTR[CUR].lo, hi=INSTR[CUR].hi; let w=m; while(
 // corda mais aguda que alcança a nota; acima de 7 semitons (só na corda Mi) a mão sobe de posição a cada 3 semitons
 // Digitação "um dedo para cada nota": a partir da corda solta, os dedos 1-2-3-4 são as quatro notas naturais seguintes
 // (ex.: corda Ré = Ré solto, Mi 1, Fá 2, Sol 3, Lá 4). Sustenido/bemol mantém o dedo da nota natural (um pouco para frente/trás).
+// Violoncelo (nível iniciante, 1ª posição): semitons acima da corda solta → dedo, igual em cada corda (Dó, Sol, Ré, Lá):
+//  solta 0 · +1 → 1 · +2 → 1 · +3 → 2 · +4 → 3 · +5 → 4 · +6 → 4 (4º dedo estendido). Ex.: corda Dó = Dó, Dó♯ 1, Ré 1, Mi♭ 2, Mi 3, Fá 4, Fá♯ 4
+const CELLO_FING=[0,1,1,2,3,4,4];
 function violinFinger(m,acc){
     const sp=spellMidi(m,acc||0), d=sp.o*7+sp.l;
     for(let i=3;i>=0;i--){
@@ -1714,6 +1717,7 @@ function violinFinger(m,acc){
         if(k<0) continue;
         const off=m-op;
         if(off===0) return {s:i,off,f:0};
+        if(CUR==='cello'&&off<=6) return {s:i,off,f:CELLO_FING[off]};   // violoncelo iniciante: tabela por semitom (ver acima)
         return {s:i,off,f:k===0?1:((k-1)%4)+1};   // acima do 4º dedo a mão sobe de posição e o padrão se repete
     }
     return {s:0,off:Math.max(0,m-VIOLIN_OPEN[0]),f:1};
