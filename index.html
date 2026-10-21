@@ -526,6 +526,7 @@
             <span>Voz:</span>
             <select id="voiceSel" aria-label="Voz a executar"></select>
         </div>
+        <button class="score-action-btn secondary" id="pbPlayerScore" title="Ver e baixar a partitura deste hino (Pro)">🎼 Partitura</button>
         <div class="volume-control">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
             <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="70">
@@ -1281,6 +1282,7 @@ async function loadBuffer(buf,name){
         if(!parsed.notes.length) throw new Error('Nenhuma nota encontrada');
         state.voiceSel='all';
         await applyNotes(parsed.notes, parsed.duration, parsed.voiceNames);
+        state.srcBpm=parsed.bpm; state.srcTs=parsed.timeSig;
         if(parsed.key!=null&&Math.abs(parsed.key)<=7) setKey((parsed.key<0?'f':'s')+Math.abs(parsed.key),true);
         toast(`Carregado! ${state.totalNotes} notas`, 'success');
     } catch(err){ toast('Erro: '+err.message); state.midiLoaded=false; }
@@ -3872,9 +3874,34 @@ function makePdf(pages){
     return new Blob(chunks,{type:'application/pdf'});
 }
 let scoreData=null, scTimer=0;
+let scFromPlayer=false;
+// partitura do hino aberto no player: monta notas temporárias (não mexe na composição do editor)
+function playerScoreNotes(){
+    const bpm=Math.max(20,Math.min(300,Math.round(state.srcBpm||120))), spb=60/bpm, q=0.25;
+    const ids=state.voiceIds.length?state.voiceIds:[0];
+    return state.notes.filter(n=>!n.dup).map(n=>({
+        midi:Math.max(21,Math.min(108,n.midi)), beat:1+Math.round(n.startTime/spb/q)*q, duration:Math.max(q,Math.round(n.duration/spb/q)*q),
+        velocity:Math.max(1,Math.min(127,Math.round((n.velocity||.7)*127))), voice:Math.max(0,ids.indexOf(n.track||0)),
+        accidental:0,dotted:false,dotted2:false,tied:false,articulations:[]
+    }));
+}
+function withScoreSource(fn){
+    if(!scFromPlayer) return fn();
+    const bakN=scoreNotes, bpmEl=$('scoreBpm'), tsEl=$('scoreTimeSig'), bakB=bpmEl.value, bakT=tsEl.value;
+    try{
+        scoreNotes=playerScoreNotes();
+        bpmEl.value=Math.max(20,Math.min(300,Math.round(state.srcBpm||120)));
+        if(state.srcTs&&PB_MEASURE[state.srcTs]) tsEl.value=state.srcTs;
+        return fn();
+    } finally { scoreNotes=bakN; bpmEl.value=bakB; tsEl.value=bakT; }
+}
+function scVoiceList(){
+    if(scFromPlayer){ const n=playerScoreNotes(); return state.voiceIds.map((id,i)=>({id:i,name:state.voiceNames[i]})).filter(v=>n.some(x=>x.voice===v.id)); }
+    return voices.filter(v=>scoreNotes.some(n=>n.voice===v.id));
+}
 function fillScVoice(){
     const sel=$('scVoice'), prev=sel.value||'all';
-    const used=voices.filter(v=>scoreNotes.some(n=>n.voice===v.id));
+    const used=scVoiceList();
     sel.innerHTML='<option value="all">Todas as vozes</option>'+used.map(v=>`<option value="${v.id}">${v.name}</option>`).join('');
     sel.value=[...sel.options].some(o=>o.value===prev)?prev:'all';
     sel.parentElement.style.display=used.length>1?'':'none';
@@ -3882,18 +3909,21 @@ function fillScVoice(){
 function renderScoreModal(){
     const body=$('scBody'); body.innerHTML=''; scoreData=null; $('scPdf').disabled=true;
     const msg=t=>{ const d=document.createElement('div'); d.className='pb-msg'; d.textContent=t; body.append(d); };
-    if(!scoreNotes.length){ msg('Escreva algumas notas na composição e volte aqui para ver a partitura.'); return; }
+    if(!(scFromPlayer?state.midiLoaded:scoreNotes.length)){ msg(scFromPlayer?'Abra um hino para ver a partitura.':'Escreva algumas notas na composição e volte aqui para ver a partitura.'); return; }
     try{
-        scoreData=pbBuildScore({title:$('scTitle').value,voice:$('scVoice').value});
+        scoreData=withScoreSource(()=>pbBuildScore({title:$('scTitle').value,voice:$('scVoice').value}));
         scoreData.svgs.forEach(svg=>{ const p=document.createElement('div'); p.className='pb-paper'; svg.removeAttribute('width'); svg.removeAttribute('height'); p.append(svg); body.append(p); });
         $('scPdf').disabled=false; $('scPdf').textContent=PRO.ok?'⬇ Baixar PDF':'🔒 Baixar PDF (Pro)';
     }catch(e){ console.error(e); msg('Não foi possível montar a partitura desta composição.'); }
 }
-function openScore(){
-    $('scTitle').value=projName==='Sem título'?'':projName;
+function openScore(fromPlayer){
+    scFromPlayer=fromPlayer===true;
+    $('scTitle').value=scFromPlayer?(fileNameEl.textContent||'').replace(/\.(mid|midi|mxl|xml|musicxml)$/i,''):(projName==='Sem título'?'':projName);
+    if(scFromPlayer&&state.voiceSel!=='all'){ fillScVoice(); const i=state.voiceIds.indexOf(state.voiceSel); if(i>=0) $('scVoice').value=String(i); }
     closeModals(); openModal('mScore'); fillScVoice(); renderScoreModal();
 }
-$('pbScore').onclick=openScore; $('exScore').onclick=openScore;
+$('pbScore').onclick=()=>openScore(false); $('exScore').onclick=()=>openScore(false);
+$('pbPlayerScore').onclick=()=>{ if(!state.midiLoaded){ say('Abra um hino primeiro'); return; } openScore(true); };
 $('scVoice').onchange=renderScoreModal;
 $('scTitle').oninput=()=>{ clearTimeout(scTimer); scTimer=setTimeout(renderScoreModal,450); };
 $('scPdf').onclick=async()=>{
@@ -3902,7 +3932,7 @@ $('scPdf').onclick=async()=>{
     busy(true);
     try{
         const pgs=[]; for(const svg of scoreData.svgs) pgs.push(await svgToJpeg(svg,scoreData.W,scoreData.H,2.6));
-        const vs=$('scVoice').value, vn=vs==='all'?'':' - '+((voices.find(v=>String(v.id)===vs)||{}).name||'');
+        const vs=$('scVoice').value, vn=vs==='all'?'':' - '+((scVoiceList().find(v=>String(v.id)===vs)||{}).name||'');
         download(safeName(($('scTitle').value.trim()||projName)+vn)+'.pdf',makePdf(pgs));
         say('Partitura exportada em PDF',true);
     }catch(e){ console.error(e); say('Não foi possível gerar o PDF'); }
