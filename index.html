@@ -721,6 +721,7 @@
     <div class="pb-head"><h2>Partitura</h2><button class="pb-x" data-close>✕</button></div>
     <div class="pb-opts">
       <label>Título <input type="text" id="scTitle" maxlength="60" placeholder="Título da música"></label>
+      <label>Voz <select id="scVoice" aria-label="Voz da partitura"></select></label>
       <button class="score-action-btn primary" id="scPdf" style="margin-left:auto">⬇ Baixar PDF</button>
     </div>
     <div class="pb-body" id="scBody" style="padding:14px 10px"></div>
@@ -1395,11 +1396,11 @@ async function proRender(){
         box.innerHTML='<div class="pro-ok">✓ Pro ativo neste aparelho</div><p class="pro-p">Todos os hinos estão liberados, completos e com qualquer voz.</p><p class="pro-p pro-small">Código: <b></b><br>Aparelho: '+dev+'<br>O acesso continua mesmo se você desinstalar o app ou limpar os dados (basta digitar o mesmo código neste aparelho, ou ele é restaurado sozinho no app instalado). O código não funciona em outro aparelho.</p>';
         box.querySelector('b').textContent=PRO.code; return;
     }
-    const msgTop=proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
+    const msgTop=proReason==='pdf'?'Baixar a partitura em PDF (todas as vozes ou só uma) é um recurso Pro.':proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
     const configured=/^https?:/.test(PRO_CFG.scriptUrl)&&PRO_CFG.pixKey&&PRO_CFG.pixKey!=='SUA_CHAVE_PIX';
     let dev=''; try{ dev=await proDevice(); }catch(e){}
     box.innerHTML=(msgTop?'<div class="pro-top">'+msgTop+'</div>':'')+
-      '<p class="pro-p"><b>Grátis:</b> hinos 1 a '+PRO_CFG.freeHinos+' completos e '+PRO_CFG.previewSec+' s de prévia nos demais (todas as vozes).<br><b>Pro:</b> todos os hinos completos, com qualquer voz. Pagamento único via Pix'+(price?' · <b>'+price+'</b>':'')+'.</p>'+
+      '<p class="pro-p"><b>Grátis:</b> hinos 1 a '+PRO_CFG.freeHinos+' completos e '+PRO_CFG.previewSec+' s de prévia nos demais (todas as vozes).<br><b>Pro:</b> todos os hinos completos, com qualquer voz, e download da partitura em PDF (todas as vozes ou só a que você escolher). Pagamento único via Pix'+(price?' · <b>'+price+'</b>':'')+'.</p>'+
       (configured?'':'<p class="pro-p pro-warn">Atenção: o dono do app ainda não preencheu o arquivo pro-config.js (chave Pix e endereço do script).</p>')+
       '<div class="pro-step"><span>1</span><div><b>Pague via Pix</b><div class="pro-row"><button class="pro-btn" id="proCopyPix">Copiar Pix copia e cola</button><button class="pro-btn sec" id="proCopyKey">Copiar chave</button></div><div class="pro-small" id="proKeyTxt"></div></div></div>'+
       '<div class="pro-step"><span>2</span><div><b>Envie o comprovante</b><div class="pro-row"><a class="pro-btn" id="proWa" target="_blank" rel="noopener">Enviar no WhatsApp</a></div><div class="pro-small">Você recebe um código de uso único.</div></div></div>'+
@@ -3189,7 +3190,8 @@ function pbBuildScore(opts){
     const ts=document.getElementById('scoreTimeSig').value||'4/4', M=PB_MEASURE[ts]||32, beatU=ts==='6/8'?12:8;
     const bpm=parseInt(document.getElementById('scoreBpm').value)||120;
     const title=(opts.title||'').trim();
-    const notes=scoreNotes.map((n,i)=>{
+    const vsel=(opts.voice===undefined||opts.voice==='all')?null:Number(opts.voice);
+    const notes=scoreNotes.map((n,i)=>({n,i})).filter(x=>vsel===null||x.n.voice===vsel).map(({n,i})=>{
         const sp=pbSpell(n), u=Math.max(0,Math.round((n.beat-1)*8));
         let e=Math.round((n.beat-1+n.duration)*8); if(e<=u) e=u+1;
         return {n,i,u,e,l:sp.l,a:sp.a,o:sp.o,d:sp.o*7+sp.l,midi:n.midi,tied:!!n.tied,arts:n.articulations||[]};
@@ -3870,27 +3872,38 @@ function makePdf(pages){
     return new Blob(chunks,{type:'application/pdf'});
 }
 let scoreData=null, scTimer=0;
+function fillScVoice(){
+    const sel=$('scVoice'), prev=sel.value||'all';
+    const used=voices.filter(v=>scoreNotes.some(n=>n.voice===v.id));
+    sel.innerHTML='<option value="all">Todas as vozes</option>'+used.map(v=>`<option value="${v.id}">${v.name}</option>`).join('');
+    sel.value=[...sel.options].some(o=>o.value===prev)?prev:'all';
+    sel.parentElement.style.display=used.length>1?'':'none';
+}
 function renderScoreModal(){
     const body=$('scBody'); body.innerHTML=''; scoreData=null; $('scPdf').disabled=true;
     const msg=t=>{ const d=document.createElement('div'); d.className='pb-msg'; d.textContent=t; body.append(d); };
     if(!scoreNotes.length){ msg('Escreva algumas notas na composição e volte aqui para ver a partitura.'); return; }
     try{
-        scoreData=pbBuildScore({title:$('scTitle').value});
+        scoreData=pbBuildScore({title:$('scTitle').value,voice:$('scVoice').value});
         scoreData.svgs.forEach(svg=>{ const p=document.createElement('div'); p.className='pb-paper'; svg.removeAttribute('width'); svg.removeAttribute('height'); p.append(svg); body.append(p); });
-        $('scPdf').disabled=false;
+        $('scPdf').disabled=false; $('scPdf').textContent=PRO.ok?'⬇ Baixar PDF':'🔒 Baixar PDF (Pro)';
     }catch(e){ console.error(e); msg('Não foi possível montar a partitura desta composição.'); }
 }
 function openScore(){
     $('scTitle').value=projName==='Sem título'?'':projName;
-    closeModals(); openModal('mScore'); renderScoreModal();
+    closeModals(); openModal('mScore'); fillScVoice(); renderScoreModal();
 }
 $('pbScore').onclick=openScore; $('exScore').onclick=openScore;
+$('scVoice').onchange=renderScoreModal;
 $('scTitle').oninput=()=>{ clearTimeout(scTimer); scTimer=setTimeout(renderScoreModal,450); };
 $('scPdf').onclick=async()=>{
-    if(!scoreData) return; busy(true);
+    if(!scoreData) return;
+    if(!PRO.ok){ closeModals(); proPaywall('pdf'); return; }   // baixar a partitura em PDF é só Pro
+    busy(true);
     try{
         const pgs=[]; for(const svg of scoreData.svgs) pgs.push(await svgToJpeg(svg,scoreData.W,scoreData.H,2.6));
-        download(safeName($('scTitle').value.trim()||projName)+'.pdf',makePdf(pgs));
+        const vs=$('scVoice').value, vn=vs==='all'?'':' - '+((voices.find(v=>String(v.id)===vs)||{}).name||'');
+        download(safeName(($('scTitle').value.trim()||projName)+vn)+'.pdf',makePdf(pgs));
         say('Partitura exportada em PDF',true);
     }catch(e){ console.error(e); say('Não foi possível gerar o PDF'); }
     busy(false);
