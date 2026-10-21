@@ -333,7 +333,8 @@
         @media(min-width:1200px){
             .app-header{padding:8px 22px;} .piano-container{height:clamp(190px,34vh,300px);} .controls-bar{padding:8px 22px;}
         }
-    .inst-only .canvas-container{flex:0 0 0!important;height:0!important;min-height:0!important;overflow:hidden}
+    .inst-only .canvas-container{flex:0 0 auto!important;height:auto!important;min-height:0!important;overflow:visible}
+.inst-only #mainCanvas{display:none}
 .inst-only .piano-container{flex:1 1 auto!important;height:auto!important;min-height:0;border-top:none}
 
         /* ===== PROJETOS / EXPORTAR / PARTITURA ===== */
@@ -3126,9 +3127,9 @@ const LIVE_COL='#e8590c';
 function liveHost(){
     if(LIVE.host) return LIVE.host;
     const h=document.createElement('div'); h.id='liveScore';
-    h.style.cssText='position:absolute;inset:0;display:none;align-items:center;justify-content:center;padding:10px 8px;z-index:2;pointer-events:none';
+    h.style.cssText='position:relative;display:none;align-items:center;justify-content:center;padding:8px 8px 6px;z-index:2;pointer-events:none';
     const paper=document.createElement('div');
-    paper.style.cssText='background:#fff;border-radius:12px;box-shadow:0 6px 28px rgba(0,0,0,.45);overflow:hidden;width:100%;max-width:980px;max-height:100%;display:flex;align-items:center;justify-content:center;padding:4px 6px';
+    paper.style.cssText='background:#fff;border-radius:12px;box-shadow:0 6px 28px rgba(0,0,0,.45);overflow:hidden;width:100%;max-width:980px;max-height:36vh;display:flex;align-items:center;justify-content:center;padding:4px 6px';
     h.append(paper); canvasContainer.append(h); LIVE.host=h; LIVE.paper=paper; return h;
 }
 function liveBuild(vi){
@@ -3143,7 +3144,7 @@ function liveBuild(vi){
         LIVE.map=m; LIVE.ok=sd.svgs.length>0&&sd.lay.length>0;
         LIVE.svgs.forEach(svg=>{
             svg.removeAttribute('width'); svg.removeAttribute('height');
-            svg.style.cssText='display:block;width:100%;height:auto;max-height:100%';
+            svg.style.cssText='display:block;width:100%;height:auto;max-height:calc(36vh - 8px)';
             const ln=document.createElementNS(PB_NS,'line'); ln.setAttribute('stroke',LIVE_COL); ln.setAttribute('stroke-width','2.4'); ln.setAttribute('opacity','.75'); ln.setAttribute('stroke-linecap','round'); ln.style.display='none'; svg.append(ln); svg._cur=ln;
         });
     }catch(e){ console.error(e); LIVE.ok=false; }
