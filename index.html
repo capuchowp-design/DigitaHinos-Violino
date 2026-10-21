@@ -3130,7 +3130,15 @@ function liveHost(){
     h.style.cssText='position:relative;display:none;align-items:center;justify-content:center;padding:8px 8px 6px;z-index:2;pointer-events:none';
     const paper=document.createElement('div');
     paper.style.cssText='background:#fff;border-radius:12px;box-shadow:0 6px 28px rgba(0,0,0,.45);overflow:hidden;width:100%;max-width:980px;max-height:36vh;display:flex;align-items:center;justify-content:center;padding:4px 6px';
-    h.append(paper); canvasContainer.append(h); LIVE.host=h; LIVE.paper=paper; return h;
+    h.append(paper); canvasContainer.append(h); LIVE.host=h; LIVE.paper=paper;
+    // quando a altura da partitura muda, o violino é redimensionado (evita a animação cortada/esticada)
+    try{
+        let raf=0, lastH=-1;
+        const ro=new ResizeObserver(()=>{ const hh=Math.round(canvasContainer.getBoundingClientRect().height); if(hh===lastH) return; lastH=hh;
+            cancelAnimationFrame(raf); raf=requestAnimationFrame(()=>{ resizeCanvases(); if(state.midiLoaded) drawScene(); }); });
+        ro.observe(canvasContainer); ro.observe(pianoCanvas.parentElement);
+    }catch(e){}
+    return h;
 }
 function liveBuild(vi){
     LIVE.svgs=[]; LIVE.lay=[]; LIVE.heads=[]; LIVE.map=[]; LIVE.act=[]; LIVE.shown=null; LIVE.sys=-1; LIVE.ok=false;
@@ -3169,7 +3177,7 @@ function liveScoreUpdate(){
     if(LIVE.shown!==svg){ LIVE.paper.textContent=''; LIVE.paper.append(svg); LIVE.shown=svg; LIVE.sys=-1; }
     if(LIVE.sys!==si){
         LIVE.sys=si;
-        const top=L.y0-12, bot=(nx&&nx.page===L.page?nx.y0+nx.h:L.y0+L.h)-6;
+        const top=L.y0-12, bot=L.y0+L.h-6;   // só a linha que está tocando
         svg.setAttribute('viewBox','0 '+top+' '+LIVE.W+' '+(bot-top));
     }
     // barra que percorre o trecho
