@@ -38,7 +38,10 @@ if (process.env.CANAL === 'play') {
     produtoId: cfg.produtoId || 'pro_desbloqueio',
     app: cfg.app || 'violin',
     freeHinos: cfg.freeHinos,
-    previewSec: cfg.previewSec
+    previewSec: cfg.previewSec,
+    adRewardedId: cfg.adRewardedId,
+    adHoras: cfg.adHoras || 1,
+    adsTeste: process.env.ADS_TESTE !== 'false'   // true = anúncios de teste do Google (padrão); false só no build de produção
   };
   fs.writeFileSync(cfgPath, 'window.PRO_CFG = ' + JSON.stringify(limpo, null, 2) + ';\n');
 
