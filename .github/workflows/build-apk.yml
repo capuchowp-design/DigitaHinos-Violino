@@ -8,11 +8,17 @@ on:
         type: choice
         options: [play, apkpure]
         default: play
+      anuncios_teste:
+        description: 'Marcado = anúncios de TESTE do Google (use nos testes). DESMARQUE só no build que vai para produção.'
+        type: boolean
+        default: true
   push:
     tags: ['v*']          # ou crie uma tag v1.0.1, v1.0.2...
 
 env:
   CANAL: ${{ inputs.canal || 'apkpure' }}   # tag v* continua gerando o APK de sempre
+  ADS_TESTE: ${{ inputs.anuncios_teste == false && 'false' || 'true' }}
+  ADMOB_APP_ID: ca-app-pub-4518875317226768~8327927947
 
 jobs:
   build:
@@ -49,6 +55,13 @@ jobs:
         run: |
           npx cap add android
           npx cap sync android
+
+      - name: ID do app AdMob no AndroidManifest (canal play)
+        if: env.CANAL == 'play'
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i "s#</application>#    <meta-data android:name=\"com.google.android.gms.ads.APPLICATION_ID\" android:value=\"$ADMOB_APP_ID\"/>\n    </application>#" $M
+          grep -q "APPLICATION_ID" $M || { echo "::error::Não consegui inserir o ID do AdMob no AndroidManifest"; exit 1; }
 
       - name: Ícone do app
         run: |
