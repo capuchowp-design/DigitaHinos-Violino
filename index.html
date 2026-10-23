@@ -456,10 +456,12 @@
                     <button class="welcome-compose" onclick="switchView('score')">✏ Compor</button>
                 </div>
                 <div class="support-btns" style="margin-top:12px;">
+                    <!--PIX-START-->
                     <button class="btn-pix" id="btnPix">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
                         PIX — Apoiar
                     </button>
+                    <!--PIX-END-->
                     <button class="btn-install hidden" id="btnInstall">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Instalar App
@@ -467,6 +469,7 @@
                 </div>
             </div>
 
+            <!--PIX-START-->
             <!-- PIX MODAL -->
             <div id="pixModal" class="hidden">
                 <div class="pix-box">
@@ -483,6 +486,7 @@
                     <button class="pix-close" id="btnClosePix">Fechar</button>
                 </div>
             </div>
+            <!--PIX-END-->
 
             <div class="drop-overlay" id="dropOverlay">
                 <div class="drop-message">
@@ -1300,7 +1304,7 @@ function loadMidiFile(file){
 // ======================== MODO PRO (grátis x pro) ========================
 // Grátis: todos os hinos, mas só PRO_CFG.previewSec s de reprodução (qualquer voz); hinos 1..freeHinos completos.
 // Pro: tudo liberado, ativado com um código de uso único (1 código = 1 aparelho) validado numa planilha Google (Apps Script).
-const PRO_CFG=window.PRO_CFG||{app:'app',scriptUrl:'',pixKey:'',pixName:'',pixCity:'',price:0,whatsapp:'',freeHinos:5,previewSec:15};
+const PRO_CFG=window.PRO_CFG||{app:'app',modo:'pix',produtoId:'pro_desbloqueio',scriptUrl:'',pixKey:'',pixName:'',pixCity:'',price:0,whatsapp:'',freeHinos:5,previewSec:15};
 const PRO={ok:false,code:'',dev:'',last:0,native:false,devId:''};
 function proSave(){ try{ if(PRO.ok) localStorage.setItem('proState',JSON.stringify({code:PRO.code,dev:PRO.dev,last:PRO.last})); else localStorage.removeItem('proState'); }catch(e){} }
 function proLoad(){ try{ const s=JSON.parse(localStorage.getItem('proState')||'null'); if(s&&s.code){ PRO.ok=true; PRO.code=s.code; PRO.dev=s.dev||''; PRO.last=s.last||0; } }catch(e){} }
@@ -1340,7 +1344,59 @@ async function proActivate(raw){
     if(r&&r.ok){ PRO.ok=true; PRO.code=code.toUpperCase(); PRO.dev=dev; PRO.last=Date.now(); proSave(); proRefresh(); return {ok:true,status:r.status}; }
     return {ok:false,msg:PRO_MSG[r&&r.erro]||'Não foi possível ativar.'};
 }
+// ---- Google Play Billing (modo 'play': app instalado pela Play Store) ----
+// A Play guarda quem comprou: o Pro volta sozinho ao reinstalar ou trocar de aparelho com a mesma conta Google.
+function proBilling(){ try{ const C=window.Capacitor; return (C&&C.isNativePlatform&&C.isNativePlatform()&&C.Plugins&&C.Plugins.NativePurchases)||null; }catch(e){ return null; } }
+function proPlay(){ return PRO_CFG.modo==='play'&&!!proBilling(); }
+// true/false se conseguiu consultar a Play; lança erro se não conseguiu (sem conexão etc.)
+async function proPlayHas(){
+    const B=proBilling();
+    const r=await B.getPurchases({productType:'inapp'});
+    const list=Array.isArray(r)?r:(r&&r.purchases)||[];
+    return list.some(p=>{ if(!p||p.productIdentifier!==PRO_CFG.produtoId) return false; const st=String(p.purchaseState==null?'':p.purchaseState).toUpperCase(); return st!=='2'&&st!=='PENDING'; });
+}
+function proPlayOn(){ PRO.ok=true; PRO.code='GOOGLE PLAY'; PRO.dev=''; PRO.last=Date.now(); proSave(); proRefresh(); }
+async function proInitPlay(){
+    proLoad(); proRefresh();
+    try{
+        const has=await proPlayHas();
+        if(has&&!PRO.ok) proPlayOn();
+        else if(!has&&PRO.ok){ PRO.ok=false; proSave(); proRefresh(); }   // reembolso/estorno
+    }catch(e){}                                                              // sem conexão com a Play: mantém o que está salvo
+}
+async function proRenderPlay(){
+    const box=document.getElementById('proBody'); if(!box) return;
+    if(PRO.ok){
+        box.innerHTML='<div class="pro-ok">✓ Pro ativo</div><p class="pro-p">Todos os hinos estão liberados, completos e com qualquer voz.</p><p class="pro-p pro-small">A compra fica ligada à sua conta Google. Se reinstalar o app ou trocar de aparelho, use “Restaurar compra”.</p><div class="pro-row"><button class="pro-btn sec" id="proRestore">Restaurar compra</button></div><div class="pro-msg" id="proMsg"></div>';
+    } else {
+        const msgTop=proReason==='pdf'?'Baixar a partitura em PDF (todas as vozes ou só uma) é um recurso Pro.':proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
+        let price=''; try{ const r=await proBilling().getProduct({productIdentifier:PRO_CFG.produtoId,productType:'inapp'}); price=(r&&r.product&&r.product.priceString)||''; }catch(e){}
+        box.innerHTML=(msgTop?'<div class="pro-top">'+msgTop+'</div>':'')+
+          '<p class="pro-p"><b>Grátis:</b> hinos 1 a '+PRO_CFG.freeHinos+' completos e '+PRO_CFG.previewSec+' s de prévia nos demais (todas as vozes).<br><b>Pro:</b> todos os hinos completos, com qualquer voz, e download da partitura em PDF (todas as vozes ou só a que você escolher). Pagamento único pela Google Play'+(price?' · <b></b>':'')+'.</p>'+
+          '<div class="pro-row"><button class="pro-btn" id="proBuy">Comprar Pro</button><button class="pro-btn sec" id="proRestore">Restaurar compra</button></div><div class="pro-msg" id="proMsg"></div>';
+        if(price) box.querySelector('p b:last-child').textContent=price;
+        document.getElementById('proBuy').onclick=async()=>{
+            const m=document.getElementById('proMsg'), btn=document.getElementById('proBuy'); m.textContent='Abrindo a Google Play…'; m.className='pro-msg'; btn.disabled=true;
+            try{
+                await proBilling().purchaseProduct({productIdentifier:PRO_CFG.produtoId,productType:'inapp',quantity:1});
+                proPlayOn(); toast('Pro ativado! Obrigado pelo apoio ✓','success'); proRender();
+            }catch(e){
+                btn.disabled=false; const t=String((e&&e.message)||e);
+                m.textContent=/cancel/i.test(t)?'Compra cancelada.':'Não foi possível concluir a compra. Tente de novo.'; m.className='pro-msg err';
+            }
+        };
+    }
+    const rb=document.getElementById('proRestore');
+    if(rb) rb.onclick=async()=>{
+        const m=document.getElementById('proMsg'); m.textContent='Consultando a Google Play…'; m.className='pro-msg';
+        try{
+            if(await proPlayHas()){ proPlayOn(); toast('Compra restaurada ✓','success'); proRender(); }
+            else { m.textContent='Nenhuma compra do Pro encontrada nesta conta Google.'; m.className='pro-msg err'; }
+        }catch(e){ m.textContent='Sem conexão com a Google Play. Tente de novo.'; m.className='pro-msg err'; }
+    };
+}
 async function proInit(){
+    if(proPlay()) return proInitPlay();
     proLoad(); proRefresh();
     try{
         const dev=await proDevice();
@@ -1392,6 +1448,7 @@ let proReason='';
 function proPaywall(reason){ proReason=reason||''; document.getElementById('mPro').hidden=false; document.body.style.overflow='hidden'; proRender(); }
 function proClose(){ document.getElementById('mPro').hidden=true; document.body.style.overflow=''; }
 async function proRender(){
+    if(proPlay()) return proRenderPlay();
     const box=document.getElementById('proBody'); if(!box) return;
     const price=PRO_CFG.price>0?'R$ '+Number(PRO_CFG.price).toFixed(2).replace('.',','):'';
     if(PRO.ok){
@@ -3054,6 +3111,7 @@ function idleDraw(){
 }
 idleDraw();
 
+/*PIX-JS-START*/
 // ======================== PIX MODAL ========================
 const PIX_KEY = 'meuidwp@duck.com';
 
@@ -3075,6 +3133,7 @@ document.getElementById('btnCopyPix').addEventListener('click', () => {
         setTimeout(() => { btn.innerHTML = orig; }, 2000);
     });
 });
+/*PIX-JS-END*/
 
 // ======================== PWA INSTALL ========================
 let deferredInstallPrompt = null;

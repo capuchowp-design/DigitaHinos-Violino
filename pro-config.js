@@ -1,5 +1,7 @@
 // ===== CONFIGURAÇÃO DO MODO PRO — edite só este arquivo =====
 window.PRO_CFG = {
+  modo: 'pix',                                  // 'pix' = site e APKPure | 'play' = versão da Google Play (o workflow define sozinho)
+  produtoId: 'pro_desbloqueio',                 // ID do produto criado na Play Console (só vale no modo 'play')
   app: 'violin',                                // nome do app (aparece na planilha)
   scriptUrl: 'https://script.google.com/macros/s/AKfycbzkAv5KZS9QWl0hVopgOjy-obkSbKv1aqPGUYzMKhyZK0FuJuShQFbb04QKoyVRdwM5ig/exec',
   pixKey: 'meuidwp@duck.com',                   // chave Pix (e-mail)
