@@ -10,5 +10,7 @@ window.PRO_CFG = {
   price: 19.90,                                 // valor em reais
   whatsapp: '5512974087661',                    // WhatsApp (com 55 + DDD) para receber o comprovante
   freeHinos: 5,                                 // hinos 1 a N completos no modo grátis
-  previewSec: 15                                // segundos de prévia nos demais hinos
+  previewSec: 15,                               // segundos de prévia nos demais hinos
+  adRewardedId: 'ca-app-pub-4518875317226768/2595547122',  // bloco de anúncio premiado do AdMob (só vale no modo 'play')
+  adHoras: 1                                    // horas de hino liberado ao assistir o anúncio
 };

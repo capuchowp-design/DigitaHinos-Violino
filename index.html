@@ -1344,6 +1344,35 @@ async function proActivate(raw){
     if(r&&r.ok){ PRO.ok=true; PRO.code=code.toUpperCase(); PRO.dev=dev; PRO.last=Date.now(); proSave(); proRefresh(); return {ok:true,status:r.status}; }
     return {ok:false,msg:PRO_MSG[r&&r.erro]||'Não foi possível ativar.'};
 }
+// ---- Anúncio premiado (AdMob, só no modo 'play'): libera UM hino por PRO_CFG.adHoras hora(s); PDF continua só Pro ----
+function proAdMap(){ if(!PRO.ad){ try{ PRO.ad=JSON.parse(localStorage.getItem('proAd')||'{}')||{}; }catch(e){ PRO.ad={}; } } return PRO.ad; }
+function proAdActive(n){ const t=proAdMap()[n]; return !!t&&Date.now()<t; }
+function proAdSave(){ try{ const m=proAdMap(), now=Date.now(); Object.keys(m).forEach(k=>{ if(m[k]<now) delete m[k]; }); localStorage.setItem('proAd',JSON.stringify(m)); }catch(e){} }
+function proAds(){ try{ const C=window.Capacitor; return (PRO_CFG.modo==='play'&&PRO_CFG.adRewardedId&&C&&C.isNativePlatform&&C.isNativePlatform()&&C.Plugins&&C.Plugins.AdMob)||null; }catch(e){ return null; } }
+let proAdInit=null;
+function proAdStart(){
+    if(proAdInit) return proAdInit;
+    const A=proAds();
+    proAdInit=(async()=>{
+        await A.initialize({initializeForTesting:!!PRO_CFG.adsTeste});
+        try{ const ci=await A.requestConsentInfo(); if(ci&&ci.isConsentFormAvailable&&String(ci.status).toUpperCase()==='REQUIRED') await A.showConsentForm(); }catch(e){}   // consentimento (UE/Reino Unido), se configurado no AdMob
+    })().catch(e=>{ proAdInit=null; throw e; });
+    return proAdInit;
+}
+// resolve se o usuário assistiu até o fim (hino liberado); lança erro caso contrário
+async function proAdWatch(n){
+    const A=proAds(); if(!A) throw new Error('indisponivel');
+    await proAdStart();
+    let rewarded=false; const subs=[];
+    try{
+        try{ subs.push(await A.addListener('onRewardedVideoAdReward',()=>{ rewarded=true; })); }catch(e){}
+        await A.prepareRewardVideoAd({adId:PRO_CFG.adRewardedId,isTesting:!!PRO_CFG.adsTeste});
+        const r=await A.showRewardVideoAd();
+        if(r&&(r.amount!==undefined||r.type!==undefined)) rewarded=true;
+    } finally { subs.forEach(sb=>{ try{ sb.remove(); }catch(e){} }); }
+    if(!rewarded) throw new Error('nao_assistiu');
+    proAdMap()[n]=Date.now()+(PRO_CFG.adHoras||1)*3600e3; proAdSave();
+}
 // ---- Google Play Billing (modo 'play': app instalado pela Play Store) ----
 // A Play guarda quem comprou: o Pro volta sozinho ao reinstalar ou trocar de aparelho com a mesma conta Google.
 function proBilling(){ try{ const C=window.Capacitor; return (C&&C.isNativePlatform&&C.isNativePlatform()&&C.Plugins&&C.Plugins.NativePurchases)||null; }catch(e){ return null; } }
@@ -1370,11 +1399,25 @@ async function proRenderPlay(){
         box.innerHTML='<div class="pro-ok">✓ Pro ativo</div><p class="pro-p">Todos os hinos estão liberados, completos e com qualquer voz.</p><p class="pro-p pro-small">A compra fica ligada à sua conta Google. Se reinstalar o app ou trocar de aparelho, use “Restaurar compra”.</p><div class="pro-row"><button class="pro-btn sec" id="proRestore">Restaurar compra</button></div><div class="pro-msg" id="proMsg"></div>';
     } else {
         const msgTop=proReason==='pdf'?'Baixar a partitura em PDF (todas as vozes ou só uma) é um recurso Pro.':proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
+        const canAd=!!proAds()&&proReason!=='pdf'&&state.hinoN!=null&&state.hinoN>PRO_CFG.freeHinos&&!proAdActive(state.hinoN);
         let price=''; try{ const r=await proBilling().getProduct({productIdentifier:PRO_CFG.produtoId,productType:'inapp'}); price=(r&&r.product&&r.product.priceString)||''; }catch(e){}
         box.innerHTML=(msgTop?'<div class="pro-top">'+msgTop+'</div>':'')+
           '<p class="pro-p"><b>Grátis:</b> hinos 1 a '+PRO_CFG.freeHinos+' completos e '+PRO_CFG.previewSec+' s de prévia nos demais (todas as vozes).<br><b>Pro:</b> todos os hinos completos, com qualquer voz, e download da partitura em PDF (todas as vozes ou só a que você escolher). Pagamento único pela Google Play'+(price?' · <b></b>':'')+'.</p>'+
-          '<div class="pro-row"><button class="pro-btn" id="proBuy">Comprar Pro</button><button class="pro-btn sec" id="proRestore">Restaurar compra</button></div><div class="pro-msg" id="proMsg"></div>';
+          '<div class="pro-row"><button class="pro-btn" id="proBuy">Comprar Pro</button><button class="pro-btn sec" id="proRestore">Restaurar compra</button></div>'+
+          (canAd?'<div class="pro-row"><button class="pro-btn sec" id="proAdBtn">▶ Ver anúncio e liberar o hino '+state.hinoN+' por '+(PRO_CFG.adHoras||1)+' h</button></div><div class="pro-small">Só a reprodução com a animação. O PDF da partitura é só para o Pro.</div>':'')+
+          '<div class="pro-msg" id="proMsg"></div>';
         if(price) box.querySelector('p b:last-child').textContent=price;
+        const adb=document.getElementById('proAdBtn');
+        if(adb) adb.onclick=async()=>{
+            const m=document.getElementById('proMsg'), n=state.hinoN; m.textContent='Carregando o anúncio…'; m.className='pro-msg'; adb.disabled=true;
+            try{
+                await proAdWatch(n);
+                toast('Hino '+n+' liberado por '+(PRO_CFG.adHoras||1)+' h ✓','success'); proClose(); proRefresh();
+            }catch(e){
+                adb.disabled=false;
+                m.textContent=(e&&e.message==='nao_assistiu')?'Assista ao anúncio até o fim para liberar o hino.':'Anúncio indisponível agora. Verifique a internet e tente de novo mais tarde.'; m.className='pro-msg err';
+            }
+        };
         document.getElementById('proBuy').onclick=async()=>{
             const m=document.getElementById('proMsg'), btn=document.getElementById('proBuy'); m.textContent='Abrindo a Google Play…'; m.className='pro-msg'; btn.disabled=true;
             try{
@@ -1420,6 +1463,7 @@ async function proInit(){
 function proLimit(){
     if(PRO.ok) return Infinity;
     const n=state.hinoN; if(n==null||n<=PRO_CFG.freeHinos) return Infinity;
+    if(proAdActive(n)) return Infinity;                 // hino liberado por anúncio (tempo limitado)
     return PRO_CFG.previewSec;
 }
 // ---- Pix "copia e cola" (BR Code estático, com valor) ----
@@ -1491,7 +1535,7 @@ function renderHinos(){
     const list=HINOS.filter(h=>!q||String(h.n).padStart(3,'0').includes(q.replace(/^0+(?=\d)/,''))||String(h.n)===q||normTxt(h.t).includes(q));
     if(!list.length){ box.textContent='Nenhum hino encontrado.'; return; }
     const fr=document.createDocumentFragment();
-    list.forEach(h=>{ const b=document.createElement('button'); b.className='hino-item'; const lock=!PRO.ok&&h.n>PRO_CFG.freeHinos; b.innerHTML='<b>'+String(h.n).padStart(3,'0')+'</b><span style="flex:1"></span>'+(lock?'<small style="opacity:.65;white-space:nowrap">🔒 '+PRO_CFG.previewSec+'s</small>':''); b.children[1].textContent=h.t; b.onclick=()=>openHino(h); fr.appendChild(b); });
+    list.forEach(h=>{ const b=document.createElement('button'); b.className='hino-item'; const lock=!PRO.ok&&h.n>PRO_CFG.freeHinos&&!proAdActive(h.n); b.innerHTML='<b>'+String(h.n).padStart(3,'0')+'</b><span style="flex:1"></span>'+(lock?'<small style="opacity:.65;white-space:nowrap">🔒 '+PRO_CFG.previewSec+'s</small>':''); b.children[1].textContent=h.t; b.onclick=()=>openHino(h); fr.appendChild(b); });
     box.appendChild(fr);
 }
 async function openHinos(){
