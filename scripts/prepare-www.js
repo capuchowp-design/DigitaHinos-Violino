@@ -27,3 +27,25 @@ html = html.replace(/<head[^>]*>/i, (m) => m + '\n<script src="native-bridge.js"
 fs.writeFileSync(idx, html);
 
 console.log('www/ pronto:', fs.readdirSync(out).join(', '));
+
+// ===== Canal da Google Play (CANAL=play): cobrança só pelo Google Play Billing, sem Pix =====
+if (process.env.CANAL === 'play') {
+  const cfgPath = path.join(out, 'pro-config.js');
+  const cfg = {};
+  new Function('window', fs.readFileSync(cfgPath, 'utf8'))({ set PRO_CFG(v) { Object.assign(cfg, v); } });
+  const limpo = {
+    modo: 'play',
+    produtoId: cfg.produtoId || 'pro_desbloqueio',
+    app: cfg.app || 'violin',
+    freeHinos: cfg.freeHinos,
+    previewSec: cfg.previewSec
+  };
+  fs.writeFileSync(cfgPath, 'window.PRO_CFG = ' + JSON.stringify(limpo, null, 2) + ';\n');
+
+  let h = fs.readFileSync(idx, 'utf8');
+  h = h.replace(/[ \t]*<!--PIX-START-->[\s\S]*?<!--PIX-END-->\n?/g, '');
+  h = h.replace(/\/\*PIX-JS-START\*\/[\s\S]*?\/\*PIX-JS-END\*\/\n?/g, '');
+  if (/meuidwp|PIX_KEY|id="btnPix"|getElementById\('(btnPix|pixModal)'\)/.test(h)) throw new Error('Sobrou Pix no index.html do canal play');
+  fs.writeFileSync(idx, h);
+  console.log('Canal play: Pix removido, modo Google Play Billing ativo.');
+}
