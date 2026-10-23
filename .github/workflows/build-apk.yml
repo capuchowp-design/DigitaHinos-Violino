@@ -2,8 +2,17 @@ name: Gerar APK
 
 on:
   workflow_dispatch:      # botão "Run workflow" na aba Actions
+    inputs:
+      canal:
+        description: 'play = .aab para a Google Play (Billing, sem Pix) | apkpure = .apk com Pix'
+        type: choice
+        options: [play, apkpure]
+        default: play
   push:
     tags: ['v*']          # ou crie uma tag v1.0.1, v1.0.2...
+
+env:
+  CANAL: ${{ inputs.canal || 'apkpure' }}   # tag v* continua gerando o APK de sempre
 
 jobs:
   build:
@@ -22,6 +31,16 @@ jobs:
 
       - name: Instalar dependências
         run: npm install
+
+      - name: Conferir chave de assinatura (canal play)
+        if: env.CANAL == 'play'
+        env:
+          KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KS_B64" ]; then
+            echo "::error::Canal play exige os secrets KEYSTORE_BASE64, KEYSTORE_PASSWORD e KEY_ALIAS."
+            exit 1
+          fi
 
       - name: Montar pasta www
         run: npm run prepare:www
@@ -47,13 +66,28 @@ jobs:
           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" android/app/build.gradle
           sed -i "s/versionName \"1.0\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
 
-      - name: Compilar (release)
+      - name: Compilar APK (apkpure)
+        if: env.CANAL == 'apkpure'
         working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease
 
+      - name: Compilar e assinar AAB (play)
+        if: env.CANAL == 'play'
+        env:
+          KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          cd android && chmod +x gradlew && ./gradlew bundleRelease && cd ..
+          echo "$KS_B64" | base64 -d > release.keystore
+          jarsigner -keystore release.keystore -storepass "$KS_PASS" -keypass "$KS_PASS" \
+            -signedjar violin-bounce.aab android/app/build/outputs/bundle/release/app-release.aab "$KS_ALIAS"
+          echo "AAB assinado com a SUA chave."
+
       - name: Assinar com a sua chave (se existir) ou usar chave de teste
+        if: env.CANAL == 'apkpure'
         env:
           KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
           KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -79,6 +113,13 @@ jobs:
           fi
 
       - uses: actions/upload-artifact@v4
+        if: env.CANAL == 'apkpure'
         with:
           name: violin-bounce-apk
           path: violin-bounce.apk
+
+      - uses: actions/upload-artifact@v4
+        if: env.CANAL == 'play'
+        with:
+          name: violin-bounce-aab
+          path: violin-bounce.aab
