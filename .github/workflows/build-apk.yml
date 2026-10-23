@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: 22
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
@@ -56,8 +56,7 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      - name: ID do app AdMob no AndroidManifest (canal play)
-        if: env.CANAL == 'play'
+      - name: ID do app AdMob no AndroidManifest (todos os canais)
         run: |
           M=android/app/src/main/AndroidManifest.xml
           sed -i "s#</application>#    <meta-data android:name=\"com.google.android.gms.ads.APPLICATION_ID\" android:value=\"$ADMOB_APP_ID\"/>\n    </application>#" $M
