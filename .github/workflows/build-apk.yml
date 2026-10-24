@@ -95,7 +95,7 @@ jobs:
           cd android && chmod +x gradlew && ./gradlew bundleRelease && cd ..
           echo "$KS_B64" | base64 -d > release.keystore
           jarsigner -keystore release.keystore -storepass "$KS_PASS" -keypass "$KS_PASS" \
-            -signedjar violin-bounce.aab android/app/build/outputs/bundle/release/app-release.aab "$KS_ALIAS"
+            -signedjar digitahinos-violino.aab android/app/build/outputs/bundle/release/app-release.aab "$KS_ALIAS"
           echo "AAB assinado com a SUA chave."
 
       - name: Assinar com a sua chave (se existir) ou usar chave de teste
@@ -113,25 +113,25 @@ jobs:
             export KS_PASS KS_ALIAS
             $BT/apksigner sign --ks release.keystore --ks-key-alias "$KS_ALIAS" \
               --ks-pass env:KS_PASS --key-pass env:KS_PASS \
-              --out violin-bounce.apk aligned.apk
+              --out digitahinos-violino.apk aligned.apk
             echo "APK assinado com a SUA chave."
           else
             keytool -genkeypair -keystore teste.keystore -alias teste -keyalg RSA -keysize 2048 \
               -validity 10000 -storepass android -keypass android -dname "CN=Teste"
             $BT/apksigner sign --ks teste.keystore --ks-key-alias teste \
               --ks-pass pass:android --key-pass pass:android \
-              --out violin-bounce.apk aligned.apk
+              --out digitahinos-violino.apk aligned.apk
             echo "APK assinado com chave de TESTE (não use para publicar)."
           fi
 
       - uses: actions/upload-artifact@v4
         if: env.CANAL == 'apkpure'
         with:
-          name: violin-bounce-apk
-          path: violin-bounce.apk
+          name: digitahinos-violino-apk
+          path: digitahinos-violino.apk
 
       - uses: actions/upload-artifact@v4
         if: env.CANAL == 'play'
         with:
-          name: violin-bounce-aab
-          path: violin-bounce.aab
+          name: digitahinos-violino-aab
+          path: digitahinos-violino.aab
