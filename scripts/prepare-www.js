@@ -37,7 +37,7 @@ if (process.env.CANAL === 'play') {
     modo: 'play',
     produtoId: cfg.produtoId || 'pro_desbloqueio',
     app: cfg.app || 'violin',
-    freeHinos: cfg.freeHinos,
+    freeHinos: cfg.freeHinosPlay != null ? cfg.freeHinosPlay : 5,
     previewSec: cfg.previewSec,
     adRewardedId: cfg.adRewardedId,
     adHoras: cfg.adHoras || 1,
