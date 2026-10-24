@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Violin Bounce - Visualizador MIDI</title>
+    <title>DigitaHinos Violino - Visualizador MIDI</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -408,7 +408,7 @@
             <line x1="16" y1="8" x2="16" y2="25" stroke="#c8742a" stroke-width=".7"/>
             <defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#f2c46b"/><stop offset="1" stop-color="#c8742a"/></linearGradient></defs>
         </svg>
-        <span class="logo-name">Violin Bounce</span>
+        <span class="logo-name">DigitaHinos Violino</span>
         <span class="note-count-badge" id="noteCountBadge" style="display:none">0 notas</span>
     </div>
     <div class="header-right">
@@ -446,7 +446,7 @@
                     <line x1="60" y1="30" x2="60" y2="96" stroke="#7a3b17" stroke-width="2"/>
                     <defs><linearGradient id="wg" x1="0" y1="0" x2="120" y2="120"><stop stop-color="#f2c46b"/><stop offset="1" stop-color="#c8742a"/></linearGradient></defs>
                 </svg>
-                <h1>Violin Bounce</h1>
+                <h1>DigitaHinos Violino</h1>
                 <p>Carregue um arquivo MIDI ou MusicXML (.mxl/.xml) ou crie sua própria partitura</p>
                 <div class="welcome-btns">
                     <label class="welcome-upload" for="welcomeFileInput">Carregar partitura
@@ -3072,7 +3072,7 @@ function exportMidi(){
     const all=[...header];
     tracks.forEach(td=>{ const tl=td.length; all.push(0x4D,0x54,0x72,0x6B,(tl>>24)&0xFF,(tl>>16)&0xFF,(tl>>8)&0xFF,tl&0xFF,...td); });
     const url=URL.createObjectURL(new Blob([new Uint8Array(all)],{type:'audio/midi'}));
-    const a=document.createElement('a'); a.href=url; a.download=(window.pbFileBase?window.pbFileBase():'violinbounce')+'.mid'; a.click();
+    const a=document.createElement('a'); a.href=url; a.download=(window.pbFileBase?window.pbFileBase():'digitahinos-violino')+'.mid'; a.click();
     URL.revokeObjectURL(url);
     toast('MIDI exportado ('+voiceIds.length+' vozes)!','success');
 }
@@ -3420,6 +3420,16 @@ function pbBuildScore(opts){
     const STG=4*SP;   // espaço entre as pautas
 
     staves.forEach(st=>{
+        // 8va (clave de Sol, notas agudas) / 8vb (clave de Fá, notas graves): escreve perto da pauta e indica a oitava
+        if(opts.o8!==false&&(st.clef==='treble'||st.clef==='bass')){
+            const tr=st.clef==='treble', sh=tr?-7:7;
+            const ok=(ev,loose)=>{ const hi=ev.notes[ev.notes.length-1].d, lo=ev.notes[0].d;
+                return tr?(hi>=st.base+(loose?8:12)&&lo+sh>=st.base-4):(lo<=st.base-(loose?2:4)&&hi+sh<=st.base+12); };
+            const mv=ev=>{ ev.o8=true; ev.notes.forEach(h=>{ h.d+=sh; h.o+=sh/7; }); };
+            st.ev.forEach(ev=>{ if(!ev.rest&&ev.notes.length&&ok(ev,false)) mv(ev); });
+            const ne=st.ev.filter(e=>!e.rest&&e.notes.length);   // evento isolado entre dois trechos 8va/8vb sobe junto
+            for(let i=1;i<ne.length-1;i++){ const ev=ne[i]; if(!ev.o8&&ne[i-1].o8&&ne[i+1].o8&&ok(ev,true)) mv(ev); }
+        }
         let state={}, lastM=-1;
         st.ev.forEach(ev=>{
             if(ev.m!==lastM){ state={}; lastM=ev.m; }
@@ -3512,7 +3522,7 @@ function pbBuildScore(opts){
     });
     const total_pages=svgs.length;
     svgs.forEach((s,i)=>pbEl(s,'text',{x:W/2,y:H-26,'text-anchor':'middle','font-family':'Arial,Helvetica,sans-serif','font-size':11,fill:'#888'},(i+1)+' / '+total_pages));
-    pbEl(svgs[0],'text',{x:W-MX,y:120,'text-anchor':'end','font-family':'Arial,Helvetica,sans-serif','font-size':11,'fill':'#888'},ts+'  ·  Violin Bounce');
+    pbEl(svgs[0],'text',{x:W-MX,y:120,'text-anchor':'end','font-family':'Arial,Helvetica,sans-serif','font-size':11,'fill':'#888'},ts+'  ·  DigitaHinos Violino');
 
     const INK='#111', HRX=SP*0.66, HRY=SP*0.46;
     const pending=staves.map(()=>new Map()), lay=[];
@@ -3566,6 +3576,23 @@ function pbBuildScore(opts){
             const top=tops[k], yOf=d=>stepY(st,top,d), midY=top+2*SP;
             const evs=st.ev.filter(ev=>sys.ms.some(ms=>ms.m===ev.m));
             const X=ev=>colX.get(ev.m+':'+ev.pos);
+            if(st.clef==='treble'||st.clef==='bass'){ // indicação 8va/8vb com linha pontilhada
+                const tr=st.clef==='treble', runs=[]; let cr=null;
+                evs.forEach(ev=>{
+                    if(ev.rest) return;
+                    if(ev.o8){ const yy0=tr?yOf(ev.notes[ev.notes.length-1].d):yOf(ev.notes[0].d); if(!cr){ cr={a:ev,b:ev,y:yy0}; } else { cr.b=ev; cr.y=tr?Math.min(cr.y,yy0):Math.max(cr.y,yy0); } }
+                    else if(cr){ runs.push(cr); cr=null; }
+                });
+                if(cr) runs.push(cr);
+                runs.forEach(r=>{
+                    const x1=X(r.a)-HRX*1.6, x2=X(r.b)+HRX*1.9, yy=tr?Math.min(top-SP*1.6,r.y-SP*2.2):Math.max(top+4*SP+SP*2.2,r.y+SP*2.2);
+                    const t=pbEl(pg,'text',{x:x1,y:yy+4,'font-family':'Georgia,Times New Roman,serif','font-size':SP*1.7,'font-style':'italic',fill:INK});
+                    t.textContent='8';
+                    const ts2=pbEl(pg,'tspan',{'font-size':SP*1.15,dy:-SP*.15}); ts2.textContent=tr?'va':'vb'; t.appendChild(ts2);
+                    pbEl(pg,'line',{x1:x1+SP*3.1,y1:yy,x2:x2,y2:yy,stroke:INK,'stroke-width':1,'stroke-dasharray':'1.8 2.4'});
+                    pbEl(pg,'line',{x1:x2,y1:yy,x2:x2,y2:tr?yy+SP*.9:yy-SP*.9,stroke:INK,'stroke-width':1});
+                });
+            }
             const doneGroups=new Set();
             evs.forEach(ev=>{
                 if(ev.rest){ pbRest(pg,ev,X(ev),top,SP,M,INK); return; }
@@ -3754,8 +3781,8 @@ function pbTrebleClef(g,x,yG,SP){
 'use strict';
 const $=id=>document.getElementById(id);
 let projName='Sem título', current=null;      // current: {kind:'library',id} | {kind:'folder',file}
-const safeName=s=>(s||'violinbounce').replace(/[\\/:*?"<>|]+/g,'_').replace(/\s+/g,' ').trim().slice(0,80)||'violinbounce';
-window.pbFileBase=()=>safeName(projName==='Sem título'?'violinbounce':projName);
+const safeName=s=>(s||'digitahinos-violino').replace(/[\\/:*?"<>|]+/g,'_').replace(/\s+/g,' ').trim().slice(0,80)||'digitahinos-violino';
+window.pbFileBase=()=>safeName(projName==='Sem título'?'digitahinos-violino':projName);
 const say=(t,ok)=>toast(t,ok?'success':'error');
 function download(name,blob){
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
@@ -3899,7 +3926,7 @@ async function refreshFolder(){
         }
     }catch(e){ ul.append(emptyLi('Não foi possível ler a pasta')); return; }
     items.sort((a,b)=>b.mod-a.mod);
-    if(!items.length){ ul.append(emptyLi('Nenhum projeto do Violin Bounce nesta pasta ainda')); return; }
+    if(!items.length){ ul.append(emptyLi('Nenhum projeto do DigitaHinos Violino nesta pasta ainda')); return; }
     items.forEach(it=>ul.append(projLi(it.name.slice(0,-FOLDER_EXT.length),fmtDate(it.mod)+' · '+Math.max(1,Math.round(it.size/1024))+' KB',
         async()=>{ try{ const f=await it.h.getFile(); const d=JSON.parse(await f.text()); apply(d);
                 projName=it.name.slice(0,-FOLDER_EXT.length); current={kind:'folder',file:it.name}; updateName(); $('projNameIn').value=projName; closeModals(); say('Projeto aberto da pasta',true); }
@@ -4055,7 +4082,7 @@ $('exWav').onclick=async()=>{
     closeModals(); busy(true);
     try{
         const r=await renderWav();
-        download(safeName(projName==='Sem título'?'violinbounce':projName)+'.wav',wavBlob(r.buf));
+        download(safeName(projName==='Sem título'?'digitahinos-violino':projName)+'.wav',wavBlob(r.buf));
         say(r.real?'WAV exportado ('+INSTR[CUR].name.toLowerCase()+')':'WAV exportado (sintetizador — as gravações não carregaram)',true);
     }catch(e){ console.error(e); say('Não foi possível gerar o WAV'); }
     busy(false);

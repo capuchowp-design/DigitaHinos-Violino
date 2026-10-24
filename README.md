@@ -1,4 +1,4 @@
-# Violin Bounce
+# DigitaHinos Violino
 
 Visualizador MIDI com **violino animado**: o app toca o arquivo e mostra, em tempo real, em qual corda e com qual dedo (1 a 4, ou corda solta) cada nota é tocada. O arco (mão direita, verde) desliza sobre a corda tocada.
 
