@@ -1398,8 +1398,8 @@ async function proRenderPlay(){
     if(PRO.ok){
         box.innerHTML='<div class="pro-ok">✓ Pro ativo</div><p class="pro-p">Todos os hinos estão liberados, completos e com qualquer voz.</p><p class="pro-p pro-small">A compra fica ligada à sua conta Google. Se reinstalar o app ou trocar de aparelho, use “Restaurar compra”.</p><div class="pro-row"><button class="pro-btn sec" id="proRestore">Restaurar compra</button></div><div class="pro-msg" id="proMsg"></div>';
     } else {
-        const msgTop=proReason==='pdf'?'Baixar a partitura em PDF (todas as vozes ou só uma) é um recurso Pro.':proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
-        const canAd=!!proAds()&&proReason!=='pdf'&&state.hinoN!=null&&state.hinoN>PRO_CFG.freeHinos&&!proAdActive(state.hinoN);
+        const msgTop=proReason==='pdf'?'Baixar a partitura em PDF (todas as vozes ou só uma) é um recurso Pro.':proReason==='score'?'Ver a partitura completa do hino e baixar em PDF é um recurso Pro.':proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
+        const canAd=!!proAds()&&proReason!=='pdf'&&proReason!=='score'&&state.hinoN!=null&&state.hinoN>PRO_CFG.freeHinos&&!proAdActive(state.hinoN);
         let price=''; try{ const r=await proBilling().getProduct({productIdentifier:PRO_CFG.produtoId,productType:'inapp'}); price=(r&&r.product&&r.product.priceString)||''; }catch(e){}
         box.innerHTML=(msgTop?'<div class="pro-top">'+msgTop+'</div>':'')+
           '<p class="pro-p"><b>Grátis:</b> hinos 1 a '+PRO_CFG.freeHinos+' completos e '+PRO_CFG.previewSec+' s de prévia nos demais (todas as vozes).<br><b>Pro:</b> todos os hinos completos, com qualquer voz, e download da partitura em PDF (todas as vozes ou só a que você escolher). Pagamento único pela Google Play'+(price?' · <b></b>':'')+'.</p>'+
@@ -1500,7 +1500,7 @@ async function proRender(){
         box.innerHTML='<div class="pro-ok">✓ Pro ativo neste aparelho</div><p class="pro-p">Todos os hinos estão liberados, completos e com qualquer voz.</p><p class="pro-p pro-small">Código: <b></b><br>Aparelho: '+dev+'<br>O acesso continua mesmo se você desinstalar o app ou limpar os dados (basta digitar o mesmo código neste aparelho, ou ele é restaurado sozinho no app instalado). O código não funciona em outro aparelho.</p>';
         box.querySelector('b').textContent=PRO.code; return;
     }
-    const msgTop=proReason==='pdf'?'Baixar a partitura em PDF (todas as vozes ou só uma) é um recurso Pro.':proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
+    const msgTop=proReason==='pdf'?'Baixar a partitura em PDF (todas as vozes ou só uma) é um recurso Pro.':proReason==='score'?'Ver a partitura completa do hino e baixar em PDF é um recurso Pro.':proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
     const configured=/^https?:/.test(PRO_CFG.scriptUrl)&&PRO_CFG.pixKey&&PRO_CFG.pixKey!=='SUA_CHAVE_PIX';
     let dev=''; try{ dev=await proDevice(); }catch(e){}
     box.innerHTML=(msgTop?'<div class="pro-top">'+msgTop+'</div>':'')+
@@ -4098,12 +4098,44 @@ function fillScVoice(){
     sel.value=[...sel.options].some(o=>o.value===prev)?prev:'all';
     sel.parentElement.style.display=used.length>1?'':'none';
 }
+// Modo grátis: na partitura de um hino só o 1º sistema (primeira pauta) fica nítido; o restante fica desfocado e abre o aviso do Pro.
+let pbLockN=0;
+function pbLockScore(sd){
+    const first=sd.lay&&sd.lay[0]; if(!first) return;
+    const NS=PB_NS, W=sd.W, H=sd.H;
+    const open=()=>{ closeModals(); proPaywall('score'); };
+    sd.svgs.forEach((svg,pi)=>{
+        const id='pbLk'+(++pbLockN), kids=[...svg.childNodes];
+        const cut=pi===0?Math.min(H-120,first.y0+first.h-20):0;   // acima de "cut" fica nítido; abaixo, desfocado
+        const mk=(tag,a)=>{ const e=document.createElementNS(NS,tag); Object.keys(a||{}).forEach(k=>e.setAttribute(k,a[k])); return e; };
+        const defs=mk('defs'), flt=mk('filter',{id:id+'f',x:'-3%',y:'-3%',width:'106%',height:'106%'});
+        flt.append(mk('feGaussianBlur',{stdDeviation:'5.5'})); defs.append(flt);
+        const cB=mk('clipPath',{id:id+'b'}); cB.append(mk('rect',{x:0,y:cut,width:W,height:H-cut})); defs.append(cB);
+        const gClear=mk('g'); kids.forEach(k=>gClear.append(k));
+        const gBlur=gClear.cloneNode(true);
+        const blurWrap=mk('g',{'clip-path':'url(#'+id+'b)'}), blurIn=mk('g',{filter:'url(#'+id+'f)'});
+        blurIn.append(gBlur); blurWrap.append(blurIn);
+        svg.append(defs, blurWrap);
+        if(pi===0){
+            const cC=mk('clipPath',{id:id+'c'}); cC.append(mk('rect',{x:0,y:0,width:W,height:cut})); defs.append(cC);
+            const clearWrap=mk('g',{'clip-path':'url(#'+id+'c)'}); clearWrap.append(gClear); svg.append(clearWrap);
+        }
+        const by=pi===0?cut+26:H/2-34;
+        const banner=mk('g',{style:'cursor:pointer'});
+        banner.append(mk('rect',{x:W/2-250,y:by,width:500,height:68,rx:14,fill:'#1a110c','fill-opacity':'.93',stroke:'#f2c46b','stroke-width':1.5}));
+        const t1=mk('text',{x:W/2,y:by+30,'text-anchor':'middle','font-family':'Arial,Helvetica,sans-serif','font-size':19,'font-weight':'bold',fill:'#f2c46b'}); t1.textContent='🔒 Partitura completa: modo Pro';
+        const t2=mk('text',{x:W/2,y:by+53,'text-anchor':'middle','font-family':'Arial,Helvetica,sans-serif','font-size':13,fill:'#e8ddd0'}); t2.textContent='Toque aqui para ver todas as pautas e baixar em PDF';
+        banner.append(t1,t2); svg.append(banner);
+        banner.addEventListener('click',open); blurWrap.style.cursor='pointer'; blurWrap.addEventListener('click',open);
+    });
+}
 function renderScoreModal(){
     const body=$('scBody'); body.innerHTML=''; scoreData=null; $('scPdf').disabled=true;
     const msg=t=>{ const d=document.createElement('div'); d.className='pb-msg'; d.textContent=t; body.append(d); };
     if(!(scFromPlayer?state.midiLoaded:scoreNotes.length)){ msg(scFromPlayer?'Abra um hino para ver a partitura.':'Escreva algumas notas na composição e volte aqui para ver a partitura.'); return; }
     try{
         scoreData=withScoreSource(()=>pbBuildScore({title:$('scTitle').value,voice:$('scVoice').value}));
+        if(scFromPlayer&&!PRO.ok) pbLockScore(scoreData);   // só Pro vê a partitura inteira
         scoreData.svgs.forEach(svg=>{ const p=document.createElement('div'); p.className='pb-paper'; svg.removeAttribute('width'); svg.removeAttribute('height'); p.append(svg); body.append(p); });
         $('scPdf').disabled=false; $('scPdf').textContent=PRO.ok?'⬇ Baixar PDF':'🔒 Baixar PDF (Pro)';
     }catch(e){ console.error(e); msg('Não foi possível montar a partitura desta composição.'); }
