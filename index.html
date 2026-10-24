@@ -907,7 +907,17 @@ function parseMusicXML(text){
                 else if(t==='forward'){ cur+=nm(e,'duration',0); ext=Math.max(ext,cur); }
                 else if(t==='barline'){
                     const rp=c1(e,'repeat'); if(rp){ if(rp.getAttribute('direction')==='forward') info.fwd=true; else info.bwd=true; }
-                    const en=c1(e,'ending'); if(en){ if(en.getAttribute('type')==='start') info.endStart=(en.getAttribute('number')||'1').split(/[ ,]+/).map(s=>parseInt(s)).filter(x=>x>0); else info.endStop=true; }
+                    const en=c1(e,'ending'); if(en){ if(en.getAttribute('type')==='start'){
+                        let nums=(en.getAttribute('number')||'1').split(/[ ,]+/).map(s=>parseInt(s)).filter(x=>x>0);
+                        // alguns programas gravam number="2" mas o rótulo impresso na partitura é "1.2." → vale o rótulo (senão a 1ª casa seria pulada)
+                        const lab=(en.textContent||'').trim();
+                        if(/^\d+(\s*[.,;\-–]\s*\d+)*\s*\.?$/.test(lab)){
+                            const ex=new Set(); const parts=lab.replace(/\.$/,'').split(/\s*[.,;]\s*/);
+                            parts.forEach(t=>{ const r=t.split(/\s*[\-–]\s*/).map(x=>parseInt(x)).filter(x=>x>0); if(r.length===2) for(let q=r[0];q<=r[1];q++) ex.add(q); else r.forEach(q=>ex.add(q)); });
+                            if(ex.size) nums=[...ex].sort((a,b)=>a-b);
+                        }
+                        info.endStart=nums;
+                    } else info.endStop=true; }
                 } else if(t==='note'){
                     if(c1(e,'grace')) continue;
                     const isChord=!!c1(e,'chord'), dur=nm(e,'duration',0), on=isChord?lastOn:cur;
