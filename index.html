@@ -917,7 +917,7 @@ function parseMusicXML(text){
                             if(ex.size) nums=[...ex].sort((a,b)=>a-b);
                         }
                         info.endStart=nums;
-                    } else info.endStop=true; }
+                    } else { info.endStop=true; info.endNums=(en.getAttribute('number')||'').split(/[ ,]+/).map(x=>parseInt(x)).filter(x=>x>0); } }
                 } else if(t==='note'){
                     if(c1(e,'grace')) continue;
                     const isChord=!!c1(e,'chord'), dur=nm(e,'duration',0), on=isChord?lastOn:cur;
@@ -938,7 +938,8 @@ function parseMusicXML(text){
     });
     const n=MI.length; if(!n) throw new Error('Nenhum compasso encontrado');
     const len=MI.map(m=>m.ext>1e-6?m.ext:m.nom);
-    let open=null; MI.forEach(m=>{ if(m.endStart) open=m.endStart; m.volta=open; if(m.endStop) open=null; });
+    // casas 1ª/2ª/3ª. Se a casa fecha sem ter sido aberta (falha em alguns arquivos), o próprio compasso vale como essa casa
+    let open=null; MI.forEach(m=>{ if(m.endStart) open=m.endStart; m.volta=(!open&&m.endStop&&m.endNums&&m.endNums.length)?m.endNums:open; if(m.endStop) open=null; });
     // ordem de execução (repetições e casas 1ª/2ª)
     const order=[]; { let i=0,secStart=0,pass=1,jumped=false,guard=0; const taken=new Set();
         while(i<n&&guard++<n*12){
@@ -947,7 +948,13 @@ function parseMusicXML(text){
             jumped=false;
             if(m.volta&&!m.volta.includes(pass)){ i++; continue; }
             order.push(i);
-            if(m.bwd){ if(!taken.has(i)){ taken.add(i); i=secStart; pass++; jumped=true; continue; } secStart=i+1; pass=1; }
+            if(m.bwd){
+                if(!taken.has(i)){ taken.add(i); i=secStart; pass++; jumped=true; continue; }
+                // repetição esgotada: se logo depois vem uma casa de número maior (ex.: casa 1.2. e depois casa 3.), a passada continua contando
+                // (senão a 3ª casa — a última nota da estrofe antes do coro — era pulada). Caso contrário, começa uma seção nova.
+                const nx=MI[i+1]; secStart=i+1;
+                if(nx&&nx.endStart&&nx.endStart.some(q=>q>pass)) pass++; else pass=1;
+            }
             i++;
         } }
     if(!order.length) for(let i=0;i<n;i++) order.push(i);
@@ -3496,7 +3503,8 @@ function pbBuildScore(opts){
             else { cur={ms:[ms],w,first:false}; systems.push(cur); }
         }
     });
-    const sysH=44+4*SP+(staves.length-1)*(4*SP+STG)+34+22;
+    const FH=opts.fing===false?0:52;   // faixa da digitação (diagrama do braço) logo abaixo da 1ª pauta
+    const sysH=44+4*SP+(staves.length-1)*(4*SP+STG)+34+22+FH;
     const svgs=[]; let page=null, y=0, pageNo=0;
     const newPage=()=>{
         pageNo++;
@@ -3506,7 +3514,7 @@ function pbBuildScore(opts){
         svgs.push(s); page=s;
         if(pageNo===1){
             pbEl(page,'text',{x:W/2,y:70,'text-anchor':'middle','font-family':'Georgia,Times New Roman,serif','font-size':28,'font-weight':'bold',fill:'#111'},title||'Sem título');
-            pbEl(page,'text',{x:MX,y:96,'font-family':'Georgia,serif','font-size':13,'font-style':'italic',fill:'#555'},INSTR[CUR].name);
+            pbEl(page,'text',{x:MX,y:96,'font-family':'Georgia,serif','font-size':12.5,'font-style':'italic',fill:'#555'},FH?(INSTR[CUR].name+' ('+INSTR[CUR].str.map(c=>({C:'Dó',G:'Sol',D:'Ré',A:'Lá',E:'Mi'}[c]||c)).join(' · ')+', da esquerda para a direita) — diagrama do braço sob as notas (vermelho = dedo; círculo vazio = corda solta)'):INSTR[CUR].name);
             pbEl(page,'ellipse',{cx:MX+5,cy:120,rx:4.6,ry:3.4,transform:'rotate(-20 '+(MX+5)+' 120)',fill:'#111'});
             pbEl(page,'line',{x1:MX+9.2,y1:119,x2:MX+9.2,y2:105,stroke:'#111','stroke-width':1.3});
             pbEl(page,'text',{x:MX+18,y:120,'font-family':'Arial,Helvetica,sans-serif','font-size':14,fill:'#111'},'= '+bpm);
@@ -3528,7 +3536,7 @@ function pbBuildScore(opts){
     const pending=staves.map(()=>new Map()), lay=[];
     const stepY=(st,top,d)=>top+4*SP-(d-st.base)*SP/2;
     place.forEach(({sys,page:pg,y0},si)=>{
-        const tops=staves.map((_,k)=>y0+44+k*(8*SP));
+        const tops=staves.map((_,k)=>y0+44+k*(8*SP)+(k>0?FH:0));
         const left=MX, firstTs=sys.first;
         const xStart=left+clefW+ksW+(firstTs?tsW:0);
         const AW=AWfull-clefW-ksW-(firstTs?tsW:0);
@@ -3693,6 +3701,27 @@ function pbBuildScore(opts){
                     }
                 }
             });
+            // ---- digitação: diagrama do braço (cordas na vertical) com o dedo na corda certa, sob cada nota ----
+            if(FH&&k===0){
+                const yD=top+4*SP+22, BW=14, BH=20, SX=[-5.1,-1.7,1.7,5.1];
+                pbEl(pg,'text',{x:left+2,y:yD+13,'font-family':'Arial,sans-serif','font-size':9,'font-style':'italic',fill:'#777'},'dedos');
+                evs.forEach((ev,ei)=>{
+                    if(ev.rest||!ev.notes.length) return;
+                    const h=ev.notes[ev.notes.length-1];            // nota mais aguda do acorde (a melodia)
+                    if(h.tieIn) return;                              // continuação de ligadura: não toca de novo
+                    const fg=violinFinger(writtenOf(h.midi),(h.x&&h.x.n&&h.x.n.accidental)||0);
+                    const cx=X(ev), nx=ei+1<evs.length?X(evs[ei+1]):null;
+                    const sc=nx!==null&&nx>cx?Math.max(.62,Math.min(1,(nx-cx)/15.5)):1;
+                    const g=pbEl(pg,'g',{transform:`translate(${cx} ${yD}) scale(${sc}) translate(${-cx} ${-yD})`});
+                    pbEl(g,'rect',{x:cx-BW/2,y:yD,width:BW,height:BH,rx:1.2,fill:'#f3e6cf',stroke:'#a8793f','stroke-width':.8});
+                    pbEl(g,'rect',{x:cx-BW/2,y:yD-1,width:BW,height:2.2,fill:'#5b3a1a'});            // pestana (cabeça do braço)
+                    SX.forEach((dx,i)=>pbEl(g,'line',{x1:cx+dx,y1:yD,x2:cx+dx,y2:yD+BH,stroke:i===fg.s?'#222':'#b9a98c','stroke-width':i===fg.s?1.4:.7}));
+                    const sx=cx+SX[Math.max(0,Math.min(3,fg.s))];
+                    if(fg.f===0) pbEl(g,'circle',{cx:sx,cy:yD-4.2,r:2.3,fill:'#fff',stroke:'#222','stroke-width':1.1});
+                    else pbEl(g,'circle',{cx:sx,cy:yD+3.8+(fg.f-1)*4.6,r:2.6,fill:'#d62828',stroke:'#7a1010','stroke-width':.5});
+                    pbEl(g,'text',{x:cx,y:yD+BH+10.5,'text-anchor':'middle','font-family':'Arial,Helvetica,sans-serif','font-size':10,'font-weight':'bold',fill:'#7a1010'},String(fg.f));
+                });
+            }
         });
     });
     return {svgs,W,H,heads,lay,M};
