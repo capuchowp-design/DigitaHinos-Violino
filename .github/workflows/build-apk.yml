@@ -61,6 +61,9 @@ jobs:
           M=android/app/src/main/AndroidManifest.xml
           sed -i "s#</application>#    <meta-data android:name=\"com.google.android.gms.ads.APPLICATION_ID\" android:value=\"$ADMOB_APP_ID\"/>\n    </application>#" $M
           grep -q "APPLICATION_ID" $M || { echo "::error::Não consegui inserir o ID do AdMob no AndroidManifest"; exit 1; }
+          # Permissão do ID de publicidade (Android 13+): exigida pela Play porque o app declara que usa anúncios
+          grep -q "permission.AD_ID" $M || sed -i "s#</manifest>#    <uses-permission android:name=\"com.google.android.gms.permission.AD_ID\"/>\n</manifest>#" $M
+          grep -q "permission.AD_ID" $M || { echo "::error::Não consegui inserir a permissão AD_ID no AndroidManifest"; exit 1; }
 
       - name: Ícone do app
         run: |
