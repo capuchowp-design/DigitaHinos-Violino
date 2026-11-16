@@ -18,7 +18,9 @@ for (const f of fs.readdirSync('.')) {
   }
 }
 
-if (fs.existsSync('hinos')) fs.cpSync('hinos', path.join(out, 'hinos'), { recursive: true });
+for (const d of ['hinos', 'samples', 'vendor']) {   // hinos, sons do violino/violoncelo (opcional) e Tone.js local (opcional)
+  if (fs.existsSync(d)) fs.cpSync(d, path.join(out, d), { recursive: true });
+}
 
 const idx = path.join(out, 'index.html');
 let html = fs.readFileSync(idx, 'utf8');

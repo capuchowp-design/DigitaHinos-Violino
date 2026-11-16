@@ -9,7 +9,32 @@
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192x192.png">
     <meta name="theme-color" content="#f2c46b">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Tone.js: usa a cópia local (vendor/Tone.js, funciona offline) e, se ela não existir, baixa do CDN -->
+    <script src="vendor/Tone.js"></script>
+    <script>window.Tone||document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"><\/script>');</script>
+    <script>
+    // ===== DESEMPENHO: "modo leve" para celulares fracos =====
+    // Automático (pouca memória / poucos núcleos). O botão ⚡ no topo força ligado/desligado e guarda a escolha.
+    window.LITE=(function(){
+        try{ var s=localStorage.getItem('vb-lite'); if(s==='1') return true; if(s==='0') return false; }catch(e){}
+        var mem=navigator.deviceMemory||0, cores=navigator.hardwareConcurrency||0;
+        return (mem>0&&mem<=2)||(cores>0&&cores<=4);
+    })();
+    // Áudio: buffer grande ("playback") + antecedência maior no agendamento das notas.
+    // Evita os "picotes" quando o celular demora a desenhar um quadro ou o processador está no limite.
+    try{
+        var ctx=new Tone.Context({latencyHint:'playback', lookAhead: window.LITE?0.4:0.2});
+        Tone.setContext(ctx);
+        ctx.lookAhead = window.LITE?0.4:0.2;
+    }catch(e){ console.warn('contexto de áudio padrão', e); }
+    // Desenho: sombras/brilhos (shadowBlur) são o recurso mais pesado do canvas em celular fraco
+    if(window.LITE&&window.CanvasRenderingContext2D){
+        try{
+            var d=Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype,'shadowBlur');
+            if(d&&d.set) Object.defineProperty(CanvasRenderingContext2D.prototype,'shadowBlur',{configurable:true,enumerable:d.enumerable,get:d.get,set:function(){ d.set.call(this,0); }});
+        }catch(e){}
+    }
+    </script>
     <script src="pro-config.js"></script>
     <style>
         @import url('https://cdn.jsdelivr.net/fontsource/fonts/inter@5/latin.css');
@@ -422,6 +447,7 @@
         <span class="file-name" id="fileName"></span>
         <button class="tab-btn" id="proBtn" title="Modo Pro: todos os hinos completos">⭐ Pro</button>
         <button class="tab-btn" id="hinosBtn" title="Biblioteca de hinos">📖 <span>Hinos</span></button>
+        <button class="theme-btn" id="liteBtn" title="Modo leve: para celulares fracos (som sem picotar)">⚡</button>
         <button class="theme-btn" id="themeBtn" title="Alternar modo claro/escuro">🌙</button>
         <label class="file-label">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -1177,6 +1203,7 @@ function toast(msg,type='error'){const t=type==='error'?errorToast:successToast;
 // Se o piano demorar a carregar (internet lenta), o app toca com o sintetizador e TROCA
 // automaticamente para o piano real assim que terminar de baixar. O MIDI exportado não muda.
 const SAMPLE_BASES=[
+    './samples/',   // cópia dentro do app (pasta samples/, ver README): sem internet, carrega rápido
     'https://nbrosowsky.github.io/tonejs-instruments/samples/',
     'https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/samples/'
 ];
@@ -1185,6 +1212,13 @@ const SAMPLE_OCT={violin:[3,7],cello:[1,6]};
 function setOf(){ return SAMPLE_SET[CUR]||'violin'; }
 // Sondagem: só usa as amostras que realmente existem no servidor (nomes com 's' = sustenido)
 async function sampleUrls(base,set){
+    if(!/^https?:/i.test(base)){   // pasta local: lê samples/<instrumento>/index.json  ({"A3":"A3.mp3",...})
+        const r=await fetch(base+'index.json',{cache:'no-cache'});
+        if(!r.ok) throw new Error('sem amostras locais');
+        const j=await r.json();
+        if(!j||typeof j!=='object'||!Object.keys(j).length) throw new Error('index.json vazio');
+        return j;
+    }
     const names=[], [o0,o1]=SAMPLE_OCT[set];
     for(let o=o0;o<=o1;o++) ['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B'].forEach(n=>names.push(n+o));
     const ok=await Promise.all(names.map(n=>fetch(base+n+'.mp3',{method:'HEAD'}).then(r=>r.ok?n:null).catch(()=>null)));
@@ -1209,9 +1243,11 @@ async function getOutChain(){
     let head=Tone.getDestination();
     try{
         const limiter=new Tone.Limiter(-1).connect(head); head=limiter;
-        const reverb=new Tone.Reverb({decay:2.2,preDelay:0.012,wet:0.16}).connect(head);
-        await reverb.generate();
-        head=reverb;
+        if(!window.LITE){   // reverb (convolução) é pesado: no modo leve fica desligado
+            const reverb=new Tone.Reverb({decay:2.2,preDelay:0.012,wet:0.16}).connect(head);
+            await reverb.generate();
+            head=reverb;
+        }
         toneFilter=new Tone.Filter(INSTR[CUR].cut,'lowpass').connect(head); head=toneFilter;
     }catch(e){}
     outChain=head; return head;
@@ -1283,7 +1319,7 @@ window.addEventListener('online',()=>{ if(!state.piano){ samplerPromises[setOf()
 
 // ======================== CANVAS RESIZE ========================
 function resizeCanvases(){
-    const dpr=window.devicePixelRatio||1;
+    const dpr=Math.min(window.devicePixelRatio||1, window.LITE?1.5:2.5);   // menos pixels = menos trabalho por quadro
     const mr=canvasContainer.getBoundingClientRect();
     mainCanvas.width=mr.width*dpr; mainCanvas.height=mr.height*dpr;
     mainCanvas.style.width=mr.width+'px'; mainCanvas.style.height=mr.height+'px';
@@ -1702,12 +1738,18 @@ function seekTo(newTime){
 }
 
 // ======================== ANIMATION (sync via Transport) ========================
+let _lastDraw=0;
 function animate(){
     if(!state.isPlaying) return;
     // Transport.seconds = time elapsed since Transport.start(), not scaled by speed
     state.currentTime = state.pausedAt + Tone.Transport.seconds * state.speed;
     if(state.currentTime>=state.duration){ stopPlayback(); return; }
     if(state.currentTime>=proLimit()){ stopPlayback(); proPaywall('fim'); return; }
+    if(window.LITE){   // modo leve: desenha no máx. ~30 quadros/s (o som continua exato, o relógio é o do áudio)
+        const t=performance.now();
+        if(t-_lastDraw<32){ state.animFrameId=requestAnimationFrame(animate); return; }
+        _lastDraw=t;
+    }
     updateUI(); drawScene();
     state.animFrameId=requestAnimationFrame(animate);
 }
@@ -2234,7 +2276,7 @@ function rebuildChordRows(){
         sel.addEventListener('change',async e=>{
             chordVoiceNotes[v.id]=parseInt(e.target.value);
             await Tone.start(); if(!state.samplerReady) await initSampler();
-            try{ state.sampler.triggerAttackRelease(nname(parseInt(e.target.value)),'8n',Tone.now(),0.5); }catch(er){}
+            try{ state.sampler.triggerAttackRelease(nname(parseInt(e.target.value)),'8n',(Tone.immediate?Tone.immediate():Tone.now()),0.5); }catch(er){}
         });
         // remove toggle
         const rmBtn=document.createElement('button');
@@ -2315,7 +2357,7 @@ async function previewNote(midi){
     await Tone.start();
     if(!state.samplerReady) await initSampler();
     const m=Math.max(21,Math.min(108,midi+selAccidental));
-    try{ state.sampler.triggerAttackRelease(nname(m),'8n',Tone.now(),0.55); }catch(e){}
+    try{ state.sampler.triggerAttackRelease(nname(m),'8n',(Tone.immediate?Tone.immediate():Tone.now()),0.55); }catch(e){}
 }
 
 // ---- Duration & modifier buttons ----
@@ -2919,7 +2961,7 @@ function openEditPopup(noteIdx,px,py){
     // preview on midi change
     popup.querySelector('#ep-midi').addEventListener('change',async e=>{
         await Tone.start(); if(!state.samplerReady) await initSampler();
-        try{ state.sampler.triggerAttackRelease(nname(parseInt(e.target.value)),'8n',Tone.now(),0.55); }catch(er){}
+        try{ state.sampler.triggerAttackRelease(nname(parseInt(e.target.value)),'8n',(Tone.immediate?Tone.immediate():Tone.now()),0.55); }catch(er){}
     });
 }
 function closeEditPopup(){ if(editPopup){ editPopup.remove(); editPopup=null; } }
@@ -3097,6 +3139,21 @@ themeBtn.addEventListener('click',()=>{
     localStorage.setItem('vb-theme',light?'light':'dark');
     if(state.midiLoaded) drawScene(); else { resizeCanvases(); }
 });
+
+// ======================== MODO LEVE (celulares fracos) ========================
+(function initLite(){
+    const b=document.getElementById('liteBtn'); if(!b) return;
+    const paint=()=>{ b.style.opacity=window.LITE?'1':'.45'; b.style.boxShadow=window.LITE?'0 0 0 2px #f2c46b inset':'none'; b.setAttribute('aria-pressed',window.LITE?'true':'false'); };
+    paint();
+    b.addEventListener('click',()=>{
+        const novo=!window.LITE;
+        const msg=novo?'Ligar o MODO LEVE?\nDeixa o app mais leve e o som sem picotar em celulares fracos (sem reverb e com animação mais simples).\n\nO app será reiniciado.'
+                      :'Desligar o MODO LEVE?\nVolta o visual completo e o reverb.\n\nO app será reiniciado.';
+        if(!confirm(msg)) return;
+        try{ localStorage.setItem('vb-lite',novo?'1':'0'); }catch(e){}
+        location.reload();
+    });
+})();
 
 // ======================== SERVICE WORKER ========================
 if('serviceWorker' in navigator){
