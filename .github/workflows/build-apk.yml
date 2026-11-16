@@ -102,6 +102,13 @@ jobs:
             -signedjar digitahinos-violino.aab android/app/build/outputs/bundle/release/app-release.aab "$KS_ALIAS"
           echo "AAB assinado com a SUA chave."
 
+      - name: Conferir permissão AD_ID dentro do AAB final (canal play)
+        if: env.CANAL == 'play'
+        run: |
+          unzip -p digitahinos-violino.aab base/manifest/AndroidManifest.xml | strings | grep -q "com.google.android.gms.permission.AD_ID" \
+            && echo "OK: permissão AD_ID presente no AAB." \
+            || { echo "::error::A permissão AD_ID NÃO está no AAB final."; exit 1; }
+
       - name: Assinar com a sua chave (se existir) ou usar chave de teste
         if: env.CANAL == 'apkpure'
         env:
