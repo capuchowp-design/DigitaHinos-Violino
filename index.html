@@ -18,14 +18,16 @@
     window.LITE=(function(){
         try{ var s=localStorage.getItem('vb-lite'); if(s==='1') return true; if(s==='0') return false; }catch(e){}
         var mem=navigator.deviceMemory||0, cores=navigator.hardwareConcurrency||0;
-        return (mem>0&&mem<=2)||(cores>0&&cores<=4);
+        var celular=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent||'');   // celulares/tablets: leve por padrao (o botao ⚡ desliga)
+        return celular||(mem>0&&mem<=2)||(cores>0&&cores<=4);
     })();
     // Áudio: buffer grande ("playback") + antecedência maior no agendamento das notas.
     // Evita os "picotes" quando o celular demora a desenhar um quadro ou o processador está no limite.
     try{
-        var ctx=new Tone.Context({latencyHint:'playback', lookAhead: window.LITE?0.4:0.2});
+        var LA=window.LITE?0.6:0.25;
+        var ctx=new Tone.Context({latencyHint:'playback', lookAhead: LA});
         Tone.setContext(ctx);
-        ctx.lookAhead = window.LITE?0.4:0.2;
+        ctx.lookAhead = LA;
     }catch(e){ console.warn('contexto de áudio padrão', e); }
     // Desenho: sombras/brilhos (shadowBlur) são o recurso mais pesado do canvas em celular fraco
     if(window.LITE&&window.CanvasRenderingContext2D){
@@ -1259,7 +1261,7 @@ async function loadPianoFrom(base,out,set){
         const t=setTimeout(()=>{ if(!done){ done=true; reject(new Error('timeout')); } },45000);
         let smp;
         try{
-            smp=new Tone.Sampler({ urls, baseUrl:base, release:0.45,
+            smp=new Tone.Sampler({ urls, baseUrl:base, release:(window.LITE?0.3:0.45),
                 onload:()=>{ if(done){ try{smp.dispose();}catch(e){} return; } done=true; clearTimeout(t); resolve(smp); },
                 onerror:err=>{ if(!done){ done=true; clearTimeout(t); try{smp.dispose();}catch(e){} reject(err||new Error('erro')); } }
             }).connect(out);
@@ -1742,7 +1744,7 @@ let _lastDraw=0;
 function animate(){
     if(!state.isPlaying) return;
     // Transport.seconds = time elapsed since Transport.start(), not scaled by speed
-    state.currentTime = state.pausedAt + Tone.Transport.seconds * state.speed;
+    state.currentTime = state.pausedAt + Math.max(0, Tone.Transport.seconds - (Tone.getContext().lookAhead||0)) * state.speed;
     if(state.currentTime>=state.duration){ stopPlayback(); return; }
     if(state.currentTime>=proLimit()){ stopPlayback(); proPaywall('fim'); return; }
     if(window.LITE){   // modo leve: desenha no máx. ~30 quadros/s (o som continua exato, o relógio é o do áudio)
