@@ -25,9 +25,13 @@
     // Evita os "picotes" quando o celular demora a desenhar um quadro ou o processador está no limite.
     try{
         var LA=window.LITE?0.6:0.25;
-        var ctx=new Tone.Context({latencyHint:'playback', lookAhead: LA});
+        var LAT='playback'; try{ var lv=localStorage.getItem('vb-lat'); if(lv==='interactive'||lv==='balanced'||lv==='playback') LAT=lv; }catch(e){}
+        window.VB_LAT=LAT;
+        var ctx=new Tone.Context({latencyHint:LAT, lookAhead: LA});
         Tone.setContext(ctx);
         ctx.lookAhead = LA;
+        try{ ctx.rawContext.addEventListener('statechange',function(){ if(ctx.rawContext.state!=='running'&&!document.hidden){ try{ ctx.rawContext.resume(); }catch(e){} } }); }catch(e){}
+        document.addEventListener('visibilitychange',function(){ if(!document.hidden&&ctx.rawContext.state!=='running'){ try{ ctx.rawContext.resume(); }catch(e){} } });
     }catch(e){ console.warn('contexto de áudio padrão', e); }
     // Desenho: sombras/brilhos (shadowBlur) são o recurso mais pesado do canvas em celular fraco
     if(window.LITE&&window.CanvasRenderingContext2D){
@@ -1301,7 +1305,7 @@ function initSampler(){
             for(const base of SAMPLE_BASES){
                 try{
                     const piano=await loadPianoFrom(base+set+'/',out,set);
-                    state.pianos[set]=piano;
+                    state.pianos[set]=piano; window._sampBase=base;
                     if(setOf()===set) activatePiano(set); else applyVolume();
                     return true;
                 }catch(e){}
@@ -1673,29 +1677,41 @@ async function startPlayback(){
     playIcon.style.display='none'; pauseIcon.style.display='block';
     playBtn.classList.add('active');
 
-    // Cancel any previous transport events
-    Tone.Transport.cancel();
-    Tone.Transport.stop();
-
+    // Agendador no relógio do ÁUDIO (não depende da thread principal para cada nota):
+    // a cada ~120 ms entrega ao áudio as notas dos próximos 1,5 s. Se a tela travar um pouco,
+    // as notas já entregues continuam tocando certinhas (antes, nota atrasada saía cortada ou muda).
+    schedStop();
     const offset=state.pausedAt;
     const spd=state.speed;
-
-    // Schedule all notes relative to Transport start
-    state.notes.forEach(note=>{
-        if(note.startTime<offset||!voiceOn(note)||note.startTime>=proLimit()) return;
-        const tStart=(note.startTime-offset)/spd;
-        const dur=Math.max(0.05, note.duration/spd);
-        Tone.Transport.schedule(time=>{
-            if(!state.isPlaying||!state.sampler||!state.samplerReady) return;
-            try { state.sampler.triggerAttackRelease(nname(note.midi), dur, time, note.velocity); } catch(e){}
-        }, tStart);
-    });
-
-    Tone.Transport.start('+0.05');
+    const list=state.notes.filter(note=>!(note.startTime<offset||!voiceOn(note)||note.startTime>=proLimit()))
+                          .sort((a,b)=>a.startTime-b.startTime);
+    const rc=Tone.getContext();
+    _T0=rc.currentTime+0.15;
+    let idx=0;
+    const pump=()=>{
+        if(!state.isPlaying||!state.sampler||!state.samplerReady) return;
+        const now=rc.currentTime, horizon=now+1.5;
+        const D=window._dbg||(window._dbg={sched:0,late:0,skip:0});
+        while(idx<list.length){
+            const n=list[idx];
+            let at=_T0+(n.startTime-offset)/spd;
+            if(at>horizon) break;
+            idx++;
+            const dur=Math.max(0.05,n.duration/spd);
+            if(at<now+0.01){ if(now-at>0.5){ D.skip++; continue; } D.late++; at=now+0.01; }   // muito atrasada: pula; pouco: toca já
+            D.sched++;
+            try{ state.sampler.triggerAttackRelease(nname(n.midi), dur, at, n.velocity); }catch(e){}
+        }
+    };
+    pump();
+    _sched=setInterval(pump,120);
     animate();
 }
 
+let _sched=null, _T0=0;
+function schedStop(){ if(_sched){ clearInterval(_sched); _sched=null; } }
 function clearAudio(){
+    schedStop();
     Tone.Transport.cancel();
     Tone.Transport.stop();
     if(state.sampler&&state.samplerReady){
@@ -1744,7 +1760,7 @@ let _lastDraw=0;
 function animate(){
     if(!state.isPlaying) return;
     // Transport.seconds = time elapsed since Transport.start(), not scaled by speed
-    state.currentTime = state.pausedAt + Math.max(0, Tone.Transport.seconds - (Tone.getContext().lookAhead||0)) * state.speed;
+    { const rc=Tone.getContext(); state.currentTime = state.pausedAt + Math.max(0, rc.currentTime - _T0 - (rc.rawContext.outputLatency||0)) * state.speed; }
     if(state.currentTime>=state.duration){ stopPlayback(); return; }
     if(state.currentTime>=proLimit()){ stopPlayback(); proPaywall('fim'); return; }
     if(window.LITE){   // modo leve: desenha no máx. ~30 quadros/s (o som continua exato, o relógio é o do áudio)
@@ -4339,6 +4355,56 @@ $('impGo').onclick=()=>{
 window.__pb={pbBuildScore,renderWav,wavBlob,makePdf,svgToJpeg,snapshot,apply,quickSave,saveLibrary,idbOp,importFile,sampleBank};
 })();
 
+</script>
+
+<script>
+/* ===== DIAGNÓSTICO DE ÁUDIO (segure o botão ⚡ por ~1 s) =====
+   Mostra o estado real do áudio no aparelho e deixa testar outras configurações sem recompilar. */
+(function(){
+ try{
+  var btn=document.getElementById('liteBtn'); if(!btn) return;
+  var box=null, rafId=0, fps=0, fc=0, fl=performance.now(), stalls=[], lastT=performance.now();
+  setInterval(function(){ var n=performance.now(), d=n-lastT-50; lastT=n; if(d>0) stalls.push([n,d]); while(stalls.length&&n-stalls[0][0]>5000) stalls.shift(); },50);
+  function maxStall(){ var m=0; stalls.forEach(function(s){ if(s[1]>m) m=s[1]; }); return Math.round(m); }
+  function nat(){ try{ var C=window.Capacitor; return !!(C&&C.isNativePlatform&&C.isNativePlatform()); }catch(e){ return false; } }
+  function txt(){
+    var rc=Tone.getContext(), raw=rc.rawContext, D=window._dbg||{sched:0,late:0,skip:0}, L=[];
+    var syn=(typeof state!=='undefined')&&state.synth&&state.sampler===state.synth;
+    L.push('Áudio: '+raw.state+' · '+raw.sampleRate+' Hz · dica='+(window.VB_LAT||'?'));
+    L.push('Latência base/saída: '+(raw.baseLatency||0).toFixed(3)+' / '+(raw.outputLatency||0).toFixed(3)+' s');
+    L.push('Som: '+(syn?'SINTETIZADOR (sem gravações!)':'gravações')+' · origem: '+(window._sampBase||'—'));
+    L.push('Modo leve: '+(window.LITE?'ligado':'desligado')+' · app nativo: '+(nat()?'sim':'não'));
+    L.push('Notas agendadas: '+D.sched+' · atrasadas: '+D.late+' · puladas: '+D.skip);
+    L.push('Travada máx. (5 s): '+maxStall()+' ms · quadros/s: '+fps);
+    try{ if(performance.memory) L.push('Memória JS: '+Math.round(performance.memory.usedJSHeapSize/1048576)+' MB'); }catch(e){}
+    L.push('Tocando: '+((typeof state!=='undefined'&&state.isPlaying)?'sim':'não'));
+    var m=/(Chrome|Version)\/[\d.]+/.exec(navigator.userAgent||''); L.push('WebView: '+(m?m[0]:'?'));
+    return L.join('\n');
+  }
+  function loop(){ fc++; var n=performance.now(); if(n-fl>=1000){ fps=fc; fc=0; fl=n; } if(box){ pre.textContent=txt(); rafId=requestAnimationFrame(loop); } }
+  var pre=null;
+  function hint(v){ try{ localStorage.setItem('vb-lat',v); }catch(e){} location.reload(); }
+  function open(){
+    if(box) return;
+    box=document.createElement('div');
+    box.style.cssText='position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:rgba(0,0,0,.9);color:#e8ddd0;font:11px/1.5 monospace;padding:10px;border-radius:10px;border:1px solid #8a6a2a';
+    pre=document.createElement('pre'); pre.style.cssText='margin:0 0 8px;white-space:pre-wrap;font:inherit'; box.appendChild(pre);
+    function b(label,fn){ var x=document.createElement('button'); x.textContent=label; x.style.cssText='margin:2px 4px 2px 0;padding:6px 9px;border-radius:6px;border:1px solid #8a6a2a;background:#2a1d10;color:#e8ddd0;font:11px sans-serif'; x.onclick=fn; box.appendChild(x); }
+    b('Latência: playback',function(){ hint('playback'); });
+    b('balanced',function(){ hint('balanced'); });
+    b('interactive',function(){ hint('interactive'); });
+    b('Zerar contadores',function(){ window._dbg={sched:0,late:0,skip:0}; stalls=[]; });
+    b('Fechar',close);
+    document.body.appendChild(box); loop();
+  }
+  function close(){ if(box){ box.remove(); box=null; cancelAnimationFrame(rafId); } }
+  var held=false, tm=null;
+  btn.addEventListener('pointerdown',function(){ held=false; clearTimeout(tm); tm=setTimeout(function(){ held=true; if(box) close(); else open(); },900); });
+  ['pointerup','pointerleave','pointercancel'].forEach(function(e){ btn.addEventListener(e,function(){ clearTimeout(tm); }); });
+  btn.addEventListener('contextmenu',function(e){ e.preventDefault(); });
+  btn.addEventListener('click',function(e){ if(held){ e.stopImmediatePropagation(); e.preventDefault(); held=false; } },true);
+ }catch(e){ console.warn('diagnóstico',e); }
+})();
 </script>
 </body>
 </html>
