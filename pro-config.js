@@ -12,6 +12,6 @@ window.PRO_CFG = {
   freeHinos: 50,                                // hinos 1 a N completos no modo grátis (site e APKPure, sem anúncio)
   freeHinosPlay: 5,                             // idem na versão da Google Play (lá há o anúncio para liberar 1 hino por 1 h)
   previewSec: 15,                               // segundos de prévia nos demais hinos
-  adRewardedId: 'ca-app-pub-4518875317226768/2595547122',  // bloco de anúncio premiado do AdMob (só vale no modo 'play')
+  adRewardedId: 'ca-app-pub-4518875317226768/6973637181',  // bloco de anúncio premiado do AdMob (só vale no modo 'play')
   adHoras: 1                                    // horas de hino liberado ao assistir o anúncio
 };
