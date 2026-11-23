@@ -18,7 +18,7 @@ on:
 env:
   CANAL: ${{ inputs.canal || 'apkpure' }}   # tag v* continua gerando o APK de sempre
   ADS_TESTE: ${{ inputs.anuncios_teste == false && 'false' || 'true' }}
-  ADMOB_APP_ID: ca-app-pub-4518875317226768~8327927947
+  ADMOB_APP_ID: ca-app-pub-4518875317226768~8440360583
 
 jobs:
   build:
